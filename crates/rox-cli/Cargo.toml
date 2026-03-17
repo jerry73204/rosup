@@ -1,0 +1,16 @@
+[package]
+name = "rox-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rox"
+path = "src/main.rs"
+
+[dependencies]
+rox-core.workspace = true
+clap.workspace = true
+color-eyre.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

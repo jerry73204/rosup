@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# Error handling
+eyre = "0.6"
+color-eyre = "0.6"
+thiserror = "2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+quick-xml = { version = "0.37", features = ["serialize"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Filesystem
+glob = "0.3"
+
+# Testing
+insta = { version = "1", features = ["yaml"] }
+tempfile = "3"
+
+# Internal
+rox-core = { path = "crates/rox-core" }
+
+[profile.dev-release]
+inherits = "release"
+debug = true
+debug-assertions = true
