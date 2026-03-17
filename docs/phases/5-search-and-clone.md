@@ -5,19 +5,22 @@ from the ROS index.
 
 ## Work Items
 
-- [ ] Implement `rox search`
-  - [ ] Load rosdistro cache (download if missing)
-  - [ ] Substring / fuzzy match package names against query
-  - [ ] Display results: package name, description, source URL, status
-  - [ ] Support `--distro` filter
-  - [ ] Support `--limit` to cap result count
-- [ ] Implement `rox clone`
-  - [ ] Look up package in rosdistro cache
-  - [ ] Resolve source repository URL and branch
-  - [ ] Clone repository to current directory
-  - [ ] Handle multi-package repos (rosdistro repos often contain multiple packages)
-  - [ ] Run `rox init` in the cloned directory
-  - [ ] Support `--distro` to select distribution
+### 5.1 `rox search`
+
+- [ ] Load rosdistro cache (download if missing)
+- [ ] Substring / fuzzy match package names against query
+- [ ] Display results: package name, description, source URL, status
+- [ ] Support `--distro` filter
+- [ ] Support `--limit` to cap result count
+
+### 5.2 `rox clone`
+
+- [ ] Look up package in rosdistro cache
+- [ ] Resolve source repository URL and branch
+- [ ] Clone repository to current directory
+- [ ] Handle multi-package repos (rosdistro repos often contain multiple packages)
+- [ ] Run `rox init` in the cloned directory
+- [ ] Support `--distro` to select distribution
 
 ## Acceptance Criteria
 

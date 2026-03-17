@@ -5,7 +5,7 @@ tooling.
 
 ## Work Items
 
-### Project Structure
+### 1.1 Project Structure
 
 - [x] Create a multi-crate Cargo workspace
   - `rox-cli` — binary crate, CLI entry point (clap)
@@ -21,7 +21,7 @@ tooling.
   - `ci`: check + test
   - `setup`: install dev deps (nextest, nightly toolchain)
 
-### Dependencies
+### 1.2 Dependencies
 
 - [x] `clap` with derive — CLI framework
 - [x] `serde` + `toml` — rox.toml parsing
@@ -31,7 +31,7 @@ tooling.
 - [x] `tracing` + `tracing-subscriber` — structured logging
 - [x] `glob` — workspace member pattern matching
 
-### rox-core
+### 1.3 rox-core
 
 - [x] Define `rox.toml` data model (`RoxConfig`, `Package`, `Workspace`, `Resolve`, `Build`, `Test`)
 - [x] Implement `rox.toml` parser with serde deserialization
@@ -41,7 +41,7 @@ tooling.
 - [x] Implement workspace member discovery from glob patterns + exclude
 - [ ] Set up `~/.rox/` directory structure on first run (`cache/`, `src/`)
 
-### rox-cli
+### 1.4 rox-cli
 
 - [x] Wire up clap subcommands: `init`, `build`, `test`, `add`, `remove`, `search`, `run`, `launch`, `resolve`, `clean`, `clone`
 - [x] Initialize `color-eyre` and `tracing-subscriber` in main

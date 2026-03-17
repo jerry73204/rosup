@@ -5,29 +5,43 @@ rosdep binary, and rosdistro source pull.
 
 ## Work Items
 
-- [ ] Implement rosdistro cache management
-  - [ ] Download and cache distribution YAML from `repo.ros2.org/rosdistro_cache/`
-  - [ ] Parse distribution cache: map package names to source repo URLs and versions
-  - [ ] Cache expiry / manual refresh (`rox resolve --refresh`)
-  - [ ] Store cache in `~/.rox/cache/`
-- [ ] Implement ament environment check
-  - [ ] Query `ament_index` (or `AMENT_PREFIX_PATH`) for installed packages
-  - [ ] Mark satisfied dependencies as resolved
-- [ ] Implement rosdep binary resolution
-  - [ ] Shell out to `rosdep resolve <dep>` to check if a binary is available
-  - [ ] Shell out to `rosdep install` for actual installation
-  - [ ] Handle `--simulate` / dry-run mode
-- [ ] Implement source pull resolution
-  - [ ] Look up source URL and branch from rosdistro cache
-  - [ ] Clone into `~/.rox/src/{pkg}` (or update existing clone)
-  - [ ] Build source-pulled packages with colcon into `~/.rox/install/`
-- [ ] Implement `[resolve.overrides]` handling
-  - [ ] Override source URL, branch, rev for specific deps from `rox.toml`
-- [ ] Implement `rox resolve` command
-  - [ ] Run full resolution pipeline
-  - [ ] `--dry-run`: print resolution plan without installing
-  - [ ] `--source-only`: skip rosdep, force source pull
-- [ ] Implement resolution as a pre-step for `build`, `test`, `run`, `launch`
+### 3.1 rosdistro Cache
+
+- [ ] Download and cache distribution YAML from `repo.ros2.org/rosdistro_cache/`
+- [ ] Parse distribution cache: map package names to source repo URLs and versions
+- [ ] Cache expiry / manual refresh (`rox resolve --refresh`)
+- [ ] Store cache in `~/.rox/cache/`
+
+### 3.2 Ament Environment Check
+
+- [ ] Query `ament_index` (or `AMENT_PREFIX_PATH`) for installed packages
+- [ ] Mark satisfied dependencies as resolved
+
+### 3.3 rosdep Binary Resolution
+
+- [ ] Shell out to `rosdep resolve <dep>` to check if a binary is available
+- [ ] Shell out to `rosdep install` for actual installation
+- [ ] Handle `--simulate` / dry-run mode
+
+### 3.4 Source Pull Resolution
+
+- [ ] Look up source URL and branch from rosdistro cache
+- [ ] Clone into `~/.rox/src/{pkg}` (or update existing clone)
+- [ ] Build source-pulled packages with colcon into `~/.rox/install/`
+
+### 3.5 Override Handling
+
+- [ ] Override source URL, branch, rev for specific deps from `[resolve.overrides]` in `rox.toml`
+
+### 3.6 `rox resolve` Command
+
+- [ ] Run full resolution pipeline
+- [ ] `--dry-run`: print resolution plan without installing
+- [ ] `--source-only`: skip rosdep, force source pull
+
+### 3.7 Resolution Integration
+
+- [ ] Run resolution as a pre-step for `build`, `test`, `run`, `launch`
 - [ ] Implement `--no-resolve` flag to skip resolution
 
 ## Acceptance Criteria

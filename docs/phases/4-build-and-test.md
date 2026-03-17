@@ -5,27 +5,35 @@ with configuration from `rox.toml`.
 
 ## Work Items
 
-- [ ] Implement `rox build`
-  - [ ] Run dependency resolution (phase 3)
-  - [ ] Construct `colcon build` command from `[build]` config
-  - [ ] Apply `cmake-args`, `parallel-jobs`, `symlink-install` from `rox.toml`
-  - [ ] Support `-p` / `--packages` to build specific packages
-  - [ ] Support `--deps` to include dependencies of selected packages
-  - [ ] Support `--release` / `--debug` shorthands
-  - [ ] Support `--cmake-args` CLI override
-  - [ ] Stream colcon output to terminal in real time
-- [ ] Implement `[build.overrides.<pkg>]` handling
-  - [ ] Merge per-package cmake-args with workspace-level defaults
-- [ ] Implement `rox test`
-  - [ ] Run dependency resolution
-  - [ ] Construct `colcon test` command from `[test]` config
-  - [ ] Support `-p` / `--packages` to test specific packages
-  - [ ] Support `--retest-until-pass`
-  - [ ] Run `colcon test-result` to show summary
-- [ ] Implement `rox clean`
-  - [ ] Default: remove `build/` and `log/`
-  - [ ] `--all`: also remove `install/`
-  - [ ] `-p`: remove only the specified package's build artifacts
+### 4.1 `rox build`
+
+- [ ] Run dependency resolution (phase 3)
+- [ ] Construct `colcon build` command from `[build]` config
+- [ ] Apply `cmake-args`, `parallel-jobs`, `symlink-install` from `rox.toml`
+- [ ] Support `-p` / `--packages` to build specific packages
+- [ ] Support `--deps` to include dependencies of selected packages
+- [ ] Support `--release` / `--debug` shorthands
+- [ ] Support `--cmake-args` CLI override
+- [ ] Stream colcon output to terminal in real time
+
+### 4.2 Per-Package Build Overrides
+
+- [ ] Read `[build.overrides.<pkg>]` from `rox.toml`
+- [ ] Merge per-package cmake-args with workspace-level defaults
+
+### 4.3 `rox test`
+
+- [ ] Run dependency resolution
+- [ ] Construct `colcon test` command from `[test]` config
+- [ ] Support `-p` / `--packages` to test specific packages
+- [ ] Support `--retest-until-pass`
+- [ ] Run `colcon test-result` to show summary
+
+### 4.4 `rox clean`
+
+- [ ] Default: remove `build/` and `log/`
+- [ ] `--all`: also remove `install/`
+- [ ] `-p`: remove only the specified package's build artifacts
 
 ## Acceptance Criteria
 

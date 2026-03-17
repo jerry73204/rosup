@@ -4,22 +4,27 @@ Implement `rox run` and `rox launch` for executing ROS nodes and launch files.
 
 ## Work Items
 
-- [ ] Implement workspace environment sourcing
-  - [ ] Locate `install/setup.bash` (or `.sh`, `.zsh`) relative to project root
-  - [ ] Source the setup script before executing ros2 commands
-  - [ ] Also source `~/.rox/install/setup.bash` for source-pulled deps
-- [ ] Implement `rox run`
-  - [ ] Resolve dependencies
-  - [ ] Build if needed (or warn if not built)
-  - [ ] Delegate to `ros2 run <package> <executable>`
-  - [ ] Pass through arguments after `--`
-  - [ ] Forward signals (SIGINT, SIGTERM) to the child process
-- [ ] Implement `rox launch`
-  - [ ] Resolve dependencies
-  - [ ] Build if needed (or warn if not built)
-  - [ ] Delegate to `ros2 launch <package> <launch_file>`
-  - [ ] Pass through arguments after `--`
-  - [ ] Forward signals to the child process
+### 6.1 Workspace Environment Sourcing
+
+- [ ] Locate `install/setup.bash` (or `.sh`, `.zsh`) relative to project root
+- [ ] Source the setup script before executing ros2 commands
+- [ ] Also source `~/.rox/install/setup.bash` for source-pulled deps
+
+### 6.2 `rox run`
+
+- [ ] Resolve dependencies
+- [ ] Build if needed (or warn if not built)
+- [ ] Delegate to `ros2 run <package> <executable>`
+- [ ] Pass through arguments after `--`
+- [ ] Forward signals (SIGINT, SIGTERM) to the child process
+
+### 6.3 `rox launch`
+
+- [ ] Resolve dependencies
+- [ ] Build if needed (or warn if not built)
+- [ ] Delegate to `ros2 launch <package> <launch_file>`
+- [ ] Pass through arguments after `--`
+- [ ] Forward signals to the child process
 
 ## Acceptance Criteria
 
