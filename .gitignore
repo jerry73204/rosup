@@ -1,0 +1,19 @@
+# Rust
+/target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editors
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+.vscode/
+.idea/
+
+# OS
+.DS_Store
