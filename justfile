@@ -7,6 +7,10 @@ default:
 build:
     cargo build --all-targets --profile {{profile}}
 
+# Run the rox CLI (e.g.: just run build, just run 'add sensor_msgs')
+run *args:
+    cargo run --profile {{profile}} --bin rox -- {{args}}
+
 # Remove build artifacts
 clean:
     cargo clean

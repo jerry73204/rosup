@@ -27,61 +27,56 @@ that affect this phase:
 
 ### 2.1 `rox init`
 
-- [ ] Detect auto mode: workspace if `src/` dir exists, single-package if
+- [x] Detect auto mode: workspace if `src/` dir exists, single-package if
   `package.xml` exists in CWD, error otherwise
-- [ ] Single-package mode: read `<name>` and `<build_type>` from `package.xml`;
+- [x] Single-package mode: read `<name>` and `<build_type>` from `package.xml`;
   generate `rox.toml` with `[package]`
-- [ ] Workspace mode: scan `src/` recursively for `package.xml` files; generate
+- [x] Workspace mode: scan `src/` recursively for `package.xml` files; generate
   `rox.toml` with `[workspace].members`
-- [ ] `--workspace` flag forces workspace mode even without a `src/` dir
-- [ ] Refuse to overwrite an existing `rox.toml` without `--force`
-- [ ] Print the path of the generated `rox.toml` on success
+- [x] `--workspace` flag forces workspace mode even without a `src/` dir
+- [x] Refuse to overwrite an existing `rox.toml` without `--force`
+- [x] Print the path of the generated `rox.toml` on success
 
 ### 2.2 `rox add`
 
-- [ ] Parse the target `package.xml` into a DOM (preserving comments and
-  whitespace structure)
-- [ ] Default tag: `<depend>` (build + build_export + exec)
-- [ ] `--build` → `<build_depend>`
-- [ ] `--exec` → `<exec_depend>`
-- [ ] `--test` → `<test_depend>`
-- [ ] `--dev` → `<build_depend>` + `<test_depend>`
-- [ ] `-p <pkg>` targets a specific member package in workspace mode; defaults
+- [x] Default tag: `<depend>` (build + build_export + exec)
+- [x] `--build` → `<build_depend>`
+- [x] `--exec` → `<exec_depend>`
+- [x] `--test` → `<test_depend>`
+- [x] `--dev` → `<build_depend>` + `<test_depend>`
+- [x] `-p <pkg>` targets a specific member package in workspace mode; defaults
   to the package in CWD
-- [ ] Detect and reject duplicate entries (same dep name in the same tag type)
-- [ ] Insert new elements in canonical order (after the last existing element of
+- [x] Detect and reject duplicate entries (same dep name in the same tag type)
+- [x] Insert new elements in canonical order (after the last existing element of
   the same or preceding dep type)
-- [ ] Write back the file preserving existing comments, indentation style, and
+- [x] Write back the file preserving existing comments, indentation style, and
   the `<?xml?>` / `<?xml-model?>` processing instructions
-- [ ] Print confirmation: `Added <depend>sensor_msgs</depend> to package.xml`
+- [x] Print confirmation: `Added <depend>sensor_msgs</depend> to package.xml`
 
 ### 2.3 `rox remove`
 
-- [ ] Parse the target `package.xml`
-- [ ] Remove **all** dependency tags (`<depend>`, `<build_depend>`,
-  `<exec_depend>`, `<test_depend>`, etc.) whose text content matches the given
-  name
-- [ ] `-p <pkg>` for workspace mode
-- [ ] Warn if no matching dependency was found (do not error)
-- [ ] Write back the file preserving everything else
-- [ ] Print each removed element: `Removed <depend>sensor_msgs</depend>`
+- [x] Remove **all** dependency tags whose text content matches the given name
+- [x] `-p <pkg>` for workspace mode
+- [x] Warn if no matching dependency was found (do not error)
+- [x] Write back the file preserving everything else
+- [x] Print each removed element: `Removed <depend>sensor_msgs</depend>`
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `rox init` in a dir with `package.xml` produces valid `rox.toml` in
-  package mode with correct name and build_type
-- [ ] `rox init` in a dir with `src/` containing packages produces valid
+- [x] `rox init` in a dir with `package.xml` produces valid `rox.toml` in
+  package mode with correct name
+- [x] `rox init` in a dir with `src/` containing packages produces valid
   `rox.toml` in workspace mode with all discovered members listed
-- [ ] `rox init` refuses to overwrite an existing `rox.toml` without `--force`
-- [ ] Generated `rox.toml` is valid and parses without error
-- [ ] `rox add sensor_msgs` inserts `<depend>sensor_msgs</depend>` in canonical
+- [x] `rox init` refuses to overwrite an existing `rox.toml` without `--force`
+- [x] Generated `rox.toml` is valid and parses without error
+- [x] `rox add sensor_msgs` inserts `<depend>sensor_msgs</depend>` in canonical
   position
-- [ ] `rox add ament_cmake_gtest --test` inserts `<test_depend>` specifically
-- [ ] `rox add` with `-p my_pkg` modifies the correct package in a workspace
-- [ ] Adding an already-present dependency prints a message and makes no change
-- [ ] `rox remove sensor_msgs` removes all tags whose content is `sensor_msgs`
-- [ ] Written XML preserves the original `<?xml?>` declaration, `<?xml-model?>`
+- [x] `rox add ament_cmake_gtest --test` inserts `<test_depend>` specifically
+- [x] `rox add` with `-p my_pkg` modifies the correct package in a workspace
+- [x] Adding an already-present dependency prints a message and makes no change
+- [x] `rox remove sensor_msgs` removes all tags whose content is `sensor_msgs`
+- [x] Written XML preserves the original `<?xml?>` declaration, `<?xml-model?>`
   PI, comments, and indentation style
-- [ ] `rox remove nonexistent_dep` prints a warning, exits 0, makes no change
+- [x] `rox remove nonexistent_dep` prints a warning, exits 0, makes no change

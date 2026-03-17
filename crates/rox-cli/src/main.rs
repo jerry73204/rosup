@@ -1,5 +1,10 @@
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, WrapErr};
+use rox_core::{
+    init::{self, InitMode},
+    manifest::{self, DepTag},
+    project::Project,
+};
 
 #[derive(Parser)]
 #[command(name = "rox", about = "A Cargo-like package manager for ROS 2")]
@@ -150,16 +155,132 @@ fn main() -> Result<()> {
         .init();
 
     match cli.command {
-        Command::Init { .. } => todo!("rox init"),
+        Command::Init { workspace, force } => cmd_init(workspace, force),
+        Command::Add {
+            dep_name,
+            package,
+            build,
+            exec,
+            test,
+            dev,
+        } => cmd_add(dep_name, package, build, exec, test, dev),
+        Command::Remove { dep_name, package } => cmd_remove(dep_name, package),
         Command::Clone { .. } => todo!("rox clone"),
         Command::Build { .. } => todo!("rox build"),
         Command::Test { .. } => todo!("rox test"),
-        Command::Add { .. } => todo!("rox add"),
-        Command::Remove { .. } => todo!("rox remove"),
         Command::Search { .. } => todo!("rox search"),
         Command::Run { .. } => todo!("rox run"),
         Command::Launch { .. } => todo!("rox launch"),
         Command::Resolve { .. } => todo!("rox resolve"),
         Command::Clean { .. } => todo!("rox clean"),
     }
+}
+
+fn cmd_init(force_workspace: bool, force: bool) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let result = init::init(&cwd, force_workspace, force)?;
+    let mode_label = match result.mode {
+        InitMode::Package => "package",
+        InitMode::Workspace => "workspace",
+    };
+    println!(
+        "Initialized {} manifest at {}",
+        mode_label,
+        result.rox_toml_path.display()
+    );
+    Ok(())
+}
+
+fn cmd_add(
+    dep: String,
+    package: Option<String>,
+    build: bool,
+    exec: bool,
+    test: bool,
+    dev: bool,
+) -> Result<()> {
+    let pkg_xml = resolve_package_xml(package)?;
+    let tag = if build {
+        DepTag::BuildDepend
+    } else if exec {
+        DepTag::ExecDepend
+    } else if test {
+        DepTag::TestDepend
+    } else if dev {
+        DepTag::Dev
+    } else {
+        DepTag::Depend
+    };
+
+    let inserted = manifest::add_dep(&pkg_xml, &dep, tag)?;
+    for line in &inserted {
+        println!("Added {line} to {}", pkg_xml.display());
+    }
+    Ok(())
+}
+
+fn cmd_remove(dep: String, package: Option<String>) -> Result<()> {
+    let pkg_xml = resolve_package_xml(package)?;
+    let removed = manifest::remove_dep(&pkg_xml, &dep)?;
+    if removed.is_empty() {
+        eprintln!("warning: `{dep}` not found in {}", pkg_xml.display());
+    } else {
+        for line in &removed {
+            println!("Removed {line} from {}", pkg_xml.display());
+        }
+    }
+    Ok(())
+}
+
+/// Resolve which package.xml to operate on.
+///
+/// In workspace mode with `-p pkg_name`, find the member package by name.
+/// Otherwise, look for package.xml in the current directory.
+fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+
+    if let Some(pkg_name) = package {
+        // Walk up to find project root, then locate member.
+        let project = Project::load_from(&cwd)?;
+        let members = project.members()?;
+        let member = members
+            .into_iter()
+            .find(|m| m.name == pkg_name)
+            .ok_or_else(|| eyre::eyre!("package `{pkg_name}` not found in workspace"))?;
+        // Re-derive path from glob results — find the dir containing package.xml.
+        let pkg_xml = find_member_xml(&project.root, &member.name)?;
+        return Ok(pkg_xml);
+    }
+
+    // No -p flag: use package.xml in cwd.
+    let pkg_xml = cwd.join("package.xml");
+    if !pkg_xml.exists() {
+        eyre::bail!(
+            "no package.xml found in {}. Use -p <name> to specify a package.",
+            cwd.display()
+        );
+    }
+    Ok(pkg_xml)
+}
+
+/// Find the package.xml path for a named member within a project root by
+/// scanning the workspace member directories.
+fn find_member_xml(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
+    let project = Project::load_at(root)?;
+    if let Some(ws) = &project.config.workspace {
+        for pattern in &ws.members {
+            let abs = root.join(pattern).display().to_string();
+            for entry in glob::glob(&abs).wrap_err("invalid glob pattern")? {
+                let entry: std::path::PathBuf = entry.wrap_err("glob error")?;
+                let pkg_xml = entry.join("package.xml");
+                if pkg_xml.exists() {
+                    let manifest = rox_core::package_xml::parse_file(&pkg_xml)?;
+                    if manifest.name == name {
+                        return Ok(pkg_xml);
+                    }
+                }
+            }
+        }
+    }
+    eyre::bail!("could not find package.xml for `{name}`")
 }

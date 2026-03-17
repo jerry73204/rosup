@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>my_pkg</name>
+  <version>0.1.0</version>
+  <description>test</description>
+  <maintainer email="x@x.com">X</maintainer>
+  <license>MIT</license>
+  <depend>rclcpp</depend>
+  <build_depend>rclcpp</build_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+</package>

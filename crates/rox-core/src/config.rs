@@ -135,29 +135,35 @@ mod tests {
 
     #[test]
     fn package_mode() {
-        let cfg = parse(r#"[package]
+        let cfg = parse(
+            r#"[package]
 name = "my_pkg"
-"#);
+"#,
+        );
         assert_eq!(cfg.mode().unwrap(), ProjectMode::Package);
         assert_eq!(cfg.package.unwrap().name, "my_pkg");
     }
 
     #[test]
     fn workspace_mode() {
-        let cfg = parse(r#"[workspace]
+        let cfg = parse(
+            r#"[workspace]
 members = ["src/*"]
-"#);
+"#,
+        );
         assert_eq!(cfg.mode().unwrap(), ProjectMode::Workspace);
         assert_eq!(cfg.workspace.unwrap().members, vec!["src/*"]);
     }
 
     #[test]
     fn both_sections_rejected() {
-        let cfg = parse(r#"[package]
+        let cfg = parse(
+            r#"[package]
 name = "x"
 [workspace]
 members = []
-"#);
+"#,
+        );
         assert!(cfg.mode().is_err());
     }
 
@@ -169,13 +175,15 @@ members = []
 
     #[test]
     fn resolve_override() {
-        let cfg = parse(r#"[package]
+        let cfg = parse(
+            r#"[package]
 name = "my_pkg"
 
 [resolve.overrides.nav2_core]
 git = "https://github.com/fork/nav2.git"
 branch = "my-fix"
-"#);
+"#,
+        );
         let ov = &cfg.resolve.overrides["nav2_core"];
         assert_eq!(ov.git, "https://github.com/fork/nav2.git");
         assert_eq!(ov.branch.as_deref(), Some("my-fix"));

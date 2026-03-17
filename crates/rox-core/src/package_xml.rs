@@ -23,6 +23,8 @@ pub struct PackageManifest {
     pub name: String,
     pub version: String,
     pub description: String,
+    /// Value of <export><build_type>, e.g. "ament_cmake", "ament_python".
+    pub build_type: Option<String>,
     /// All dependency declarations, grouped by type.
     pub deps: Dependencies,
 }
@@ -86,6 +88,13 @@ struct RawPackage {
     test_depend: Vec<String>,
     #[serde(rename = "doc_depend", default)]
     doc_depend: Vec<String>,
+    #[serde(rename = "export", default)]
+    export: Option<RawExport>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct RawExport {
+    build_type: Option<String>,
 }
 
 pub fn parse_file(path: &Path) -> Result<PackageManifest, PackageXmlError> {
@@ -97,16 +106,16 @@ pub fn parse_file(path: &Path) -> Result<PackageManifest, PackageXmlError> {
 }
 
 pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlError> {
-    let raw: RawPackage =
-        quick_xml::de::from_str(xml).map_err(|e| PackageXmlError::Parse {
-            path: path.display().to_string(),
-            source: e,
-        })?;
+    let raw: RawPackage = quick_xml::de::from_str(xml).map_err(|e| PackageXmlError::Parse {
+        path: path.display().to_string(),
+        source: e,
+    })?;
 
     Ok(PackageManifest {
         name: raw.name,
         version: raw.version,
         description: raw.description,
+        build_type: raw.export.and_then(|e| e.build_type),
         deps: Dependencies {
             depend: raw.depend,
             build_depend: raw.build_depend,
@@ -122,6 +131,7 @@ pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlEr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{fixture, fixture_path};
     use std::path::PathBuf;
 
     fn dummy_path() -> PathBuf {
@@ -130,42 +140,24 @@ mod tests {
 
     #[test]
     fn parses_basic_manifest() {
-        let xml = r#"<?xml version="1.0"?>
-<package format="3">
-  <name>my_robot_nav</name>
-  <version>0.1.0</version>
-  <description>Navigation package</description>
-  <maintainer email="dev@example.com">Dev</maintainer>
-  <license>MIT</license>
-  <buildtool_depend>ament_cmake</buildtool_depend>
-  <depend>rclcpp</depend>
-  <depend>sensor_msgs</depend>
-  <test_depend>ament_cmake_gtest</test_depend>
-</package>"#;
-
-        let manifest = parse_str(xml, &dummy_path()).unwrap();
+        let manifest = parse_str(&fixture("package_xml/basic.xml"), &dummy_path()).unwrap();
         assert_eq!(manifest.name, "my_robot_nav");
         assert_eq!(manifest.version, "0.1.0");
         assert_eq!(manifest.deps.depend, vec!["rclcpp", "sensor_msgs"]);
         assert_eq!(manifest.deps.buildtool_depend, vec!["ament_cmake"]);
         assert_eq!(manifest.deps.test_depend, vec!["ament_cmake_gtest"]);
+        assert_eq!(manifest.build_type, None);
+    }
+
+    #[test]
+    fn parses_build_type() {
+        let manifest = parse_file(&fixture_path("package_xml/with_build_type.xml")).unwrap();
+        assert_eq!(manifest.build_type.as_deref(), Some("ament_cmake"));
     }
 
     #[test]
     fn all_deps_deduplicates() {
-        let xml = r#"<?xml version="1.0"?>
-<package format="3">
-  <name>my_pkg</name>
-  <version>0.1.0</version>
-  <description>test</description>
-  <maintainer email="x@x.com">X</maintainer>
-  <license>MIT</license>
-  <depend>rclcpp</depend>
-  <build_depend>rclcpp</build_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-</package>"#;
-
-        let manifest = parse_str(xml, &dummy_path()).unwrap();
+        let manifest = parse_str(&fixture("package_xml/with_dup_deps.xml"), &dummy_path()).unwrap();
         let all = manifest.deps.all();
         assert_eq!(all.iter().filter(|&&d| d == "rclcpp").count(), 1);
         assert!(all.contains(&"sensor_msgs"));

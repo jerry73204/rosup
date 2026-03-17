@@ -50,11 +50,10 @@ impl Project {
             path: toml_path.clone(),
             source: e,
         })?;
-        let config: RoxConfig =
-            toml::from_str(&content).map_err(|e| ProjectError::Parse {
-                path: toml_path,
-                source: e,
-            })?;
+        let config: RoxConfig = toml::from_str(&content).map_err(|e| ProjectError::Parse {
+            path: toml_path,
+            source: e,
+        })?;
         Ok(Self {
             root: root.to_owned(),
             config,
@@ -104,7 +103,7 @@ fn discover_members(
 
     for pattern in &ws.members {
         let abs_pattern = root.join(pattern).display().to_string();
-        for entry in glob::glob(&abs_pattern).map_err(glob::PatternError::from)? {
+        for entry in glob::glob(&abs_pattern)? {
             let entry = match entry {
                 Ok(p) => p,
                 Err(_) => continue,
@@ -131,31 +130,14 @@ fn discover_members(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::copy_fixture;
     use std::fs;
     use tempfile::TempDir;
-
-    fn write(dir: &Path, name: &str, content: &str) {
-        fs::write(dir.join(name), content).unwrap();
-    }
-
-    fn minimal_package_xml(name: &str) -> String {
-        format!(
-            r#"<?xml version="1.0"?>
-<package format="3">
-  <name>{name}</name>
-  <version>0.1.0</version>
-  <description>test</description>
-  <maintainer email="x@x.com">X</maintainer>
-  <license>MIT</license>
-  <buildtool_depend>ament_cmake</buildtool_depend>
-</package>"#
-        )
-    }
 
     #[test]
     fn find_root_walks_up() {
         let tmp = TempDir::new().unwrap();
-        write(tmp.path(), "rox.toml", "[package]\nname = \"x\"\n");
+        fs::write(tmp.path().join("rox.toml"), "[package]\nname = \"x\"\n").unwrap();
         let nested = tmp.path().join("a/b/c");
         fs::create_dir_all(&nested).unwrap();
         assert_eq!(find_root(&nested).unwrap(), tmp.path());
@@ -170,7 +152,11 @@ mod tests {
     #[test]
     fn load_package_project() {
         let tmp = TempDir::new().unwrap();
-        write(tmp.path(), "rox.toml", "[package]\nname = \"my_pkg\"\n");
+        fs::write(
+            tmp.path().join("rox.toml"),
+            "[package]\nname = \"my_pkg\"\n",
+        )
+        .unwrap();
         let project = Project::load_at(tmp.path()).unwrap();
         assert!(project.config.package.is_some());
     }
@@ -186,18 +172,15 @@ mod tests {
         fs::create_dir_all(&pkg_b).unwrap();
         fs::create_dir_all(&pkg_ex).unwrap();
 
-        write(&pkg_a, "package.xml", &minimal_package_xml("pkg_a"));
-        write(&pkg_b, "package.xml", &minimal_package_xml("pkg_b"));
-        write(&pkg_ex, "package.xml", &minimal_package_xml("experimental_pkg"));
+        copy_fixture("package_xml/pkg_a.xml", &pkg_a, "package.xml");
+        copy_fixture("package_xml/pkg_b.xml", &pkg_b, "package.xml");
+        copy_fixture("package_xml/experimental_pkg.xml", &pkg_ex, "package.xml");
 
-        write(
-            tmp.path(),
-            "rox.toml",
-            r#"[workspace]
-members = ["src/*"]
-exclude = ["src/experimental_*"]
-"#,
-        );
+        fs::write(
+            tmp.path().join("rox.toml"),
+            "[workspace]\nmembers = [\"src/*\"]\nexclude = [\"src/experimental_*\"]\n",
+        )
+        .unwrap();
 
         let project = Project::load_at(tmp.path()).unwrap();
         let mut members = project.members().unwrap();
