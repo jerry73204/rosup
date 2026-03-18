@@ -39,7 +39,7 @@ tooling.
 - [x] Implement project root discovery (walk up directories for `rox.toml`)
 - [x] Implement `package.xml` format 3 parser: name, version, deps by type
 - [x] Implement workspace member discovery from glob patterns + exclude
-- [ ] Set up `~/.rox/` directory structure on first run (`cache/`, `src/`)
+- [x] Set up `~/.rox/cache/` directory on first run (rosdistro YAML store)
 
 ### 1.4 rox-cli
 
@@ -50,8 +50,8 @@ tooling.
 ## Acceptance Criteria
 
 - [x] `just build` compiles the entire workspace without warnings
-- [ ] `just check` passes format and clippy checks
-- [x] `just test` runs and passes all unit tests (12/12)
+- [x] `just check` passes format and clippy checks
+- [x] `just test` runs and passes all unit tests
 - [x] `rox --help` prints all subcommands
 - [x] `rox.toml` with `[package]` parses correctly; rejects simultaneous `[workspace]`
 - [x] `rox.toml` with `[workspace]` discovers members by scanning for `package.xml`
