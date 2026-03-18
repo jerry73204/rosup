@@ -1,0 +1,100 @@
+use rox_tests::{PackageProject, TestEnv};
+use std::fs;
+
+fn env() -> TestEnv {
+    TestEnv::new()
+}
+
+#[test]
+fn clean_default_removes_build_and_log() {
+    let proj = PackageProject::new("my_pkg").with_artifacts();
+    env().cmd(proj.root()).args(["clean"]).assert().success();
+
+    assert!(!proj.root().join("build").exists());
+    assert!(!proj.root().join("log").exists());
+    assert!(
+        proj.root().join("install").exists(),
+        "install/ must survive"
+    );
+}
+
+#[test]
+fn clean_all_removes_install() {
+    let proj = PackageProject::new("my_pkg").with_artifacts();
+    env()
+        .cmd(proj.root())
+        .args(["clean", "--all"])
+        .assert()
+        .success();
+
+    assert!(!proj.root().join("build").exists());
+    assert!(!proj.root().join("log").exists());
+    assert!(!proj.root().join("install").exists());
+}
+
+#[test]
+fn clean_deps_removes_dot_rox_artifacts() {
+    let proj = PackageProject::new("my_pkg").with_dep_src("my_dep");
+    // Also pre-create .rox/build and .rox/install.
+    let rox = proj.root().join(".rox");
+    fs::create_dir_all(rox.join("build")).unwrap();
+    fs::create_dir_all(rox.join("install")).unwrap();
+
+    env()
+        .cmd(proj.root())
+        .args(["clean", "--deps"])
+        .assert()
+        .success();
+
+    assert!(!rox.join("build").exists());
+    assert!(!rox.join("install").exists());
+    assert!(
+        rox.join("src").exists(),
+        ".rox/src/ must survive --deps alone"
+    );
+}
+
+#[test]
+fn clean_deps_src_removes_worktrees() {
+    let proj = PackageProject::new("my_pkg").with_dep_src("my_dep");
+    let rox = proj.root().join(".rox");
+    fs::create_dir_all(rox.join("build")).unwrap();
+    fs::create_dir_all(rox.join("install")).unwrap();
+
+    env()
+        .cmd(proj.root())
+        .args(["clean", "--deps", "--src"])
+        .assert()
+        .success();
+
+    assert!(!rox.join("build").exists());
+    assert!(!rox.join("install").exists());
+    assert!(!rox.join("src").exists());
+}
+
+#[test]
+fn clean_package_scoped() {
+    let proj = PackageProject::new("my_pkg")
+        .with_package_artifacts("my_pkg")
+        .with_package_artifacts("other_pkg");
+
+    env()
+        .cmd(proj.root())
+        .args(["clean", "-p", "my_pkg"])
+        .assert()
+        .success();
+
+    assert!(!proj.root().join("build/my_pkg").exists());
+    assert!(!proj.root().join("install/my_pkg").exists());
+    assert!(
+        proj.root().join("build/other_pkg").exists(),
+        "other_pkg must survive"
+    );
+    assert!(proj.root().join("install/other_pkg").exists());
+}
+
+#[test]
+fn clean_no_error_when_nothing_to_clean() {
+    let proj = PackageProject::new("my_pkg");
+    env().cmd(proj.root()).args(["clean"]).assert().success();
+}

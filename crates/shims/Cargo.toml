@@ -1,0 +1,20 @@
+[package]
+name = "shims"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "colcon"
+path = "src/bin/fake-colcon.rs"
+
+[[bin]]
+name = "git"
+path = "src/bin/fake-git.rs"
+
+[[bin]]
+name = "rosdep"
+path = "src/bin/fake-rosdep.rs"
+
+[dependencies]
+serde_json.workspace = true

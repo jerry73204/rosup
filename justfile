@@ -29,7 +29,8 @@ test:
     cargo nextest run --no-fail-fast
 
 # Run check then test (for CI)
-ci: check test
+ci: check
+    cargo nextest run --profile ci
 
 # Install required dev tools
 setup:
