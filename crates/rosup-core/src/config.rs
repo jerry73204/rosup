@@ -1,11 +1,11 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// Top-level rox.toml structure. Either `package` or `workspace` must be set,
+/// Top-level rosup.toml structure. Either `package` or `workspace` must be set,
 /// but not both.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RoxConfig {
+pub struct RosupConfig {
     pub package: Option<PackageConfig>,
     pub workspace: Option<WorkspaceConfig>,
     #[serde(default)]
@@ -16,16 +16,16 @@ pub struct RoxConfig {
     pub test: TestConfig,
 }
 
-impl RoxConfig {
+impl RosupConfig {
     pub fn mode(&self) -> eyre::Result<ProjectMode> {
         match (&self.package, &self.workspace) {
             (Some(_), None) => Ok(ProjectMode::Package),
             (None, Some(_)) => Ok(ProjectMode::Workspace),
             (Some(_), Some(_)) => {
-                eyre::bail!("`[package]` and `[workspace]` cannot both be set in rox.toml")
+                eyre::bail!("`[package]` and `[workspace]` cannot both be set in rosup.toml")
             }
             (None, None) => {
-                eyre::bail!("rox.toml must contain either `[package]` or `[workspace]`")
+                eyre::bail!("rosup.toml must contain either `[package]` or `[workspace]`")
             }
         }
     }
@@ -129,7 +129,7 @@ pub struct TestConfig {
 mod tests {
     use super::*;
 
-    fn parse(s: &str) -> RoxConfig {
+    fn parse(s: &str) -> RosupConfig {
         toml::from_str(s).expect("parse failed")
     }
 

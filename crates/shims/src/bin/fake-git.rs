@@ -1,7 +1,7 @@
 //! Fake `git` shim for integration tests.
 //!
 //! Records invocations to `$SHIM_LOG_DIR/git-<pid>.json`.
-//! Implements the minimal subset used by rox:
+//! Implements the minimal subset used by rosup:
 //!   - `clone --bare <url> <dest>` → creates `<dest>/objects/`
 //!   - `worktree add --detach <wt> <ref>` → creates `<wt>/`
 //!   - `clone --branch <br> <url> <dest>` → creates `<dest>/` with stub package.xml

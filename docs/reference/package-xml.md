@@ -1,7 +1,7 @@
 # package.xml Reference (Format 3, ROS 2)
 
 ROS 2 uses package.xml **format 3** (REP 149). This is the source of truth for
-package metadata and dependencies. rox reads and writes this file; it does not
+package metadata and dependencies. rosup reads and writes this file; it does not
 replace it.
 
 ---
@@ -168,7 +168,7 @@ parsers. Tool-specific metadata goes here.
 | `<rosdoc2>rosdoc2.yaml</rosdoc2>` | Path to rosdoc2 configuration file. |
 | `<ros1_bridge mapping_rules="..."/>` | Type mapping for the ros1_bridge. |
 
-Custom sub-elements are freely allowed — rox uses `<export>` as its own
+Custom sub-elements are freely allowed — rosup uses `<export>` as its own
 extension point where needed.
 
 ---

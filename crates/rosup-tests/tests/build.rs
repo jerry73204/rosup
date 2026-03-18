@@ -1,4 +1,4 @@
-use rox_tests::{PackageProject, TestEnv, assert_args_contain};
+use rosup_tests::{PackageProject, TestEnv, assert_args_contain};
 
 fn env() -> TestEnv {
     TestEnv::new()
@@ -109,7 +109,7 @@ fn build_cmake_args_from_toml() {
 
 #[test]
 fn build_rebuild_deps_rebuilds_dep_layer() {
-    // Pre-create .rox/src/<repo> and .rox/install/ so without --rebuild-deps
+    // Pre-create .rosup/src/<repo> and .rosup/install/ so without --rebuild-deps
     // the dep layer would be skipped.
     let proj = PackageProject::new("my_pkg")
         .with_dep_src("some_dep")

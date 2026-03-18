@@ -2,12 +2,12 @@
 
 ## Global Behavior
 
-rox searches for `rox.toml` starting from the current directory, walking up
-to parent directories. The directory containing `rox.toml` is the **project
+rosup searches for `rosup.toml` starting from the current directory, walking up
+to parent directories. The directory containing `rosup.toml` is the **project
 root**. All commands operate relative to the project root.
 
-If no `rox.toml` is found, most commands will error with a hint to run
-`rox init`.
+If no `rosup.toml` is found, most commands will error with a hint to run
+`rosup init`.
 
 All commands that need dependencies (build, test, run, launch) resolve them
 automatically before proceeding. They also require the base ROS environment to
@@ -17,77 +17,77 @@ be sourced (`source /opt/ros/{distro}/setup.bash`) and will warn if it is not.
 
 ## Commands
 
-### `rox init`
+### `rosup init`
 
-Initialize a new `rox.toml` for an existing package or workspace.
+Initialize a new `rosup.toml` for an existing package or workspace.
 
 ```
-rox init [--workspace] [--force]
+rosup init [--workspace] [--force]
 ```
 
 | Option        | Description                                      |
 |---------------|--------------------------------------------------|
 | `--workspace` | Force workspace mode even without a `src/` dir  |
-| `--force`     | Overwrite an existing `rox.toml`                |
+| `--force`     | Overwrite an existing `rosup.toml`                |
 
 **Behavior:**
 
 - Without `--workspace`: looks for `package.xml` in the current directory.
-  Generates a single-package `rox.toml` with `[package]` populated from
+  Generates a single-package `rosup.toml` with `[package]` populated from
   `package.xml`.
 - With `--workspace`: scans for packages under `src/` (or current directory).
-  Generates a workspace `rox.toml` with discovered members.
+  Generates a workspace `rosup.toml` with discovered members.
 - If both a `src/` directory and a `package.xml` exist, defaults to workspace
   mode (common colcon layout).
-- Adds `.rox/` to `.gitignore`.
+- Adds `.rosup/` to `.gitignore`.
 
 **Examples:**
 
 ```bash
 # Inside a single package
-cd ~/nav2_core && rox init
+cd ~/nav2_core && rosup init
 
 # Inside a colcon workspace
-cd ~/my_ws && rox init
+cd ~/my_ws && rosup init
 ```
 
 ---
 
-### `rox clone`
+### `rosup clone`
 
 Clone a package from the ROS index and set it up for development.
 
 ```
-rox clone <package_name> [--distro <distro>]
+rosup clone <package_name> [--distro <distro>]
 ```
 
 1. Looks up `<package_name>` in the rosdistro distribution cache.
 2. Clones the source repository to the current directory.
-3. Generates `rox.toml` via `rox init`.
+3. Generates `rosup.toml` via `rosup init`.
 
 **Examples:**
 
 ```bash
-rox clone nav2_core
-rox clone nav2_core --distro jazzy
+rosup clone nav2_core
+rosup clone nav2_core --distro jazzy
 ```
 
 ---
 
-### `rox build`
+### `rosup build`
 
 Build packages. Resolves dependencies first, builds the dep layer if needed,
 then delegates to `colcon build`.
 
 ```
-rox build [options]
+rosup build [options]
 ```
 
 | Option            | Description                                          |
 |-------------------|------------------------------------------------------|
 | `-p, --packages`  | Build only the specified packages                    |
 | `--deps`          | Also build dependencies of selected packages         |
-| `--cmake-args`    | Additional CMake arguments (appended to rox.toml)    |
+| `--cmake-args`    | Additional CMake arguments (appended to rosup.toml)    |
 | `--no-resolve`    | Skip dependency resolution and dep layer build       |
 | `--rebuild-deps`  | Force rebuild of the dep layer from source           |
 | `--release`       | Shorthand for `-DCMAKE_BUILD_TYPE=Release`           |
@@ -97,28 +97,28 @@ rox build [options]
 
 1. Warn if base ROS environment (`AMENT_PREFIX_PATH`) is not set.
 2. Resolve dependencies (ament check → rosdep install → source clone).
-3. Build dep layer: colcon builds source-pulled packages into `.rox/install/`.
-4. Build user workspace: colcon builds project packages with `.rox/install/`
+3. Build dep layer: colcon builds source-pulled packages into `.rosup/install/`.
+4. Build user workspace: colcon builds project packages with `.rosup/install/`
    on `AMENT_PREFIX_PATH`.
 
 **Examples:**
 
 ```bash
-rox build
-rox build -p my_robot_nav
-rox build -p my_robot_nav --deps
-rox build --release
-rox build --rebuild-deps
+rosup build
+rosup build -p my_robot_nav
+rosup build -p my_robot_nav --deps
+rosup build --release
+rosup build --rebuild-deps
 ```
 
 ---
 
-### `rox test`
+### `rosup test`
 
 Run tests. Resolves dependencies first, then delegates to `colcon test`.
 
 ```
-rox test [options]
+rosup test [options]
 ```
 
 | Option                | Description                                |
@@ -130,19 +130,19 @@ rox test [options]
 **Examples:**
 
 ```bash
-rox test
-rox test -p my_robot_nav
-rox test --retest-until-pass 3
+rosup test
+rosup test -p my_robot_nav
+rosup test --retest-until-pass 3
 ```
 
 ---
 
-### `rox add`
+### `rosup add`
 
 Add a dependency to a package's `package.xml`.
 
 ```
-rox add <dep_name> [options]
+rosup add <dep_name> [options]
 ```
 
 | Option          | Description                                              |
@@ -158,20 +158,20 @@ Without a type flag, adds as `<depend>` (build + build_export + exec).
 **Examples:**
 
 ```bash
-rox add nav2_core
-rox add nav2_core --exec
-rox add ament_cmake_gtest --test
-rox add sensor_msgs -p my_robot_nav
+rosup add nav2_core
+rosup add nav2_core --exec
+rosup add ament_cmake_gtest --test
+rosup add sensor_msgs -p my_robot_nav
 ```
 
 ---
 
-### `rox remove`
+### `rosup remove`
 
 Remove a dependency from a package's `package.xml`.
 
 ```
-rox remove <dep_name> [options]
+rosup remove <dep_name> [options]
 ```
 
 | Option          | Description                     |
@@ -184,18 +184,18 @@ given name.
 **Examples:**
 
 ```bash
-rox remove nav2_core
-rox remove nav2_core -p my_robot_nav
+rosup remove nav2_core
+rosup remove nav2_core -p my_robot_nav
 ```
 
 ---
 
-### `rox search`
+### `rosup search`
 
 Search the ROS package index.
 
 ```
-rox search <query> [options]
+rosup search <query> [options]
 ```
 
 | Option    | Description                                  |
@@ -206,54 +206,54 @@ rox search <query> [options]
 **Examples:**
 
 ```bash
-rox search navigation
-rox search "costmap" --distro jazzy
+rosup search navigation
+rosup search "costmap" --distro jazzy
 ```
 
 ---
 
-### `rox run`
+### `rosup run`
 
 Run a ROS node. Sources the workspace and dep layer, then delegates to
 `ros2 run`.
 
 ```
-rox run <package_name> <executable_name> [-- <args>...]
+rosup run <package_name> <executable_name> [-- <args>...]
 ```
 
 **Examples:**
 
 ```bash
-rox run my_robot_nav nav_node
-rox run my_robot_nav nav_node -- --ros-args -p use_sim_time:=true
+rosup run my_robot_nav nav_node
+rosup run my_robot_nav nav_node -- --ros-args -p use_sim_time:=true
 ```
 
 ---
 
-### `rox launch`
+### `rosup launch`
 
 Launch a ROS launch file. Sources the workspace and dep layer, then delegates
 to `ros2 launch`.
 
 ```
-rox launch <package_name> <launch_file> [-- <args>...]
+rosup launch <package_name> <launch_file> [-- <args>...]
 ```
 
 **Examples:**
 
 ```bash
-rox launch my_robot_bringup robot.launch.py
-rox launch my_robot_bringup robot.launch.py -- use_sim_time:=true
+rosup launch my_robot_bringup robot.launch.py
+rosup launch my_robot_bringup robot.launch.py -- use_sim_time:=true
 ```
 
 ---
 
-### `rox resolve`
+### `rosup resolve`
 
 Manually trigger dependency resolution without building.
 
 ```
-rox resolve [options]
+rosup resolve [options]
 ```
 
 | Option          | Description                                      |
@@ -265,26 +265,26 @@ rox resolve [options]
 **Examples:**
 
 ```bash
-rox resolve
-rox resolve --dry-run
-rox resolve --source-only --refresh
+rosup resolve
+rosup resolve --dry-run
+rosup resolve --source-only --refresh
 ```
 
 ---
 
-### `rox clean`
+### `rosup clean`
 
 Remove build artifacts.
 
 ```
-rox clean [options]
+rosup clean [options]
 ```
 
 | Option          | Description                                                    |
 |-----------------|----------------------------------------------------------------|
 | `--all`         | Also remove `install/` (user workspace)                        |
-| `--deps`        | Remove `.rox/build/` and `.rox/install/` (dep layer artifacts) |
-| `--deps --src`  | Also remove `.rox/src/` worktrees (bare clones kept in `~/.rox/`) |
+| `--deps`        | Remove `.rosup/build/` and `.rosup/install/` (dep layer artifacts) |
+| `--deps --src`  | Also remove `.rosup/src/` worktrees (bare clones kept in `~/.rosup/`) |
 | `-p, --packages` | Clean only the specified packages from `build/`               |
 
 Default (no flags): removes `build/` and `log/` only.
@@ -292,8 +292,8 @@ Default (no flags): removes `build/` and `log/` only.
 **Examples:**
 
 ```bash
-rox clean
-rox clean --all
-rox clean --deps
-rox clean -p my_robot_nav
+rosup clean
+rosup clean --all
+rosup clean --deps
+rosup clean -p my_robot_nav
 ```

@@ -78,7 +78,7 @@ impl TestEnv {
         let original_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{original_path}", shims.display());
 
-        let mut cmd = assert_cmd::Command::cargo_bin("rox").expect("rox binary");
+        let mut cmd = assert_cmd::Command::cargo_bin("rosup").expect("rox binary");
         cmd.current_dir(project_dir)
             .env("PATH", &new_path)
             .env("HOME", self.home.path())

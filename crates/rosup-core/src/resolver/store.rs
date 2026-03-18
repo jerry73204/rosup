@@ -13,7 +13,7 @@ pub enum StoreError {
     },
 }
 
-/// Global store at `~/.rox/`.
+/// Global store at `~/.rosup/`.
 ///
 /// Shared across all projects. Contains only data that is safe to share:
 /// - `cache/` — rosdistro YAML files (download cache)
@@ -28,7 +28,7 @@ pub struct GlobalStore {
 impl GlobalStore {
     pub fn open() -> Result<Self, StoreError> {
         let home = dirs::home_dir().ok_or(StoreError::NoHome)?;
-        let root = home.join(".rox");
+        let root = home.join(".rosup");
         Ok(Self {
             cache: root.join("cache"),
             src: root.join("src"),
@@ -52,10 +52,10 @@ impl GlobalStore {
     }
 }
 
-/// Per-project store at `<project_root>/.rox/`.
+/// Per-project store at `<project_root>/.rosup/`.
 ///
 /// Analogous to Cargo's `target/` — owned by one project, git-ignored.
-/// - `src/`     — git worktrees backed by `~/.rox/src/*.git`
+/// - `src/`     — git worktrees backed by `~/.rosup/src/*.git`
 /// - `build/`   — colcon build artifacts for the dep layer
 /// - `install/` — colcon install prefix for the dep layer
 #[derive(Debug, Clone)]
@@ -68,7 +68,7 @@ pub struct ProjectStore {
 
 impl ProjectStore {
     pub fn open(project_root: &Path) -> Self {
-        let root = project_root.join(".rox");
+        let root = project_root.join(".rosup");
         Self {
             src: root.join("src"),
             build: root.join("build"),
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn global_store_paths() {
         let tmp = TempDir::new().unwrap();
-        let root = tmp.path().join(".rox");
+        let root = tmp.path().join(".rosup");
         let store = GlobalStore {
             cache: root.join("cache"),
             src: root.join("src"),
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn global_store_ensure_creates_dirs() {
         let tmp = TempDir::new().unwrap();
-        let root = tmp.path().join(".rox");
+        let root = tmp.path().join(".rosup");
         let store = GlobalStore {
             cache: root.join("cache"),
             src: root.join("src"),
@@ -132,11 +132,11 @@ mod tests {
     fn project_store_paths() {
         let tmp = TempDir::new().unwrap();
         let store = ProjectStore::open(tmp.path());
-        assert_eq!(store.root, tmp.path().join(".rox"));
-        assert_eq!(store.src, tmp.path().join(".rox/src"));
-        assert_eq!(store.build, tmp.path().join(".rox/build"));
-        assert_eq!(store.install, tmp.path().join(".rox/install"));
-        assert_eq!(store.worktree("rclcpp"), tmp.path().join(".rox/src/rclcpp"));
+        assert_eq!(store.root, tmp.path().join(".rosup"));
+        assert_eq!(store.src, tmp.path().join(".rosup/src"));
+        assert_eq!(store.build, tmp.path().join(".rosup/build"));
+        assert_eq!(store.install, tmp.path().join(".rosup/install"));
+        assert_eq!(store.worktree("rclcpp"), tmp.path().join(".rosup/src/rclcpp"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Build, test, and clean orchestration.
 //!
 //! Wraps `colcon` with the correct environment and arguments derived from
-//! `rox.toml` configuration. All colcon output streams directly to the
+//! `rosup.toml` configuration. All colcon output streams directly to the
 //! terminal; exit codes are propagated.
 
 use std::path::{Path, PathBuf};
@@ -57,9 +57,9 @@ pub fn check_ros_env(distro: Option<&str>) -> bool {
 }
 
 /// Build the `AMENT_PREFIX_PATH` for a colcon subprocess that needs to see the
-/// dep layer installed into `<project>/.rox/install/`.
+/// dep layer installed into `<project>/.rosup/install/`.
 ///
-/// Prepends the dep layer prefix only if `.rox/install/` exists.
+/// Prepends the dep layer prefix only if `.rosup/install/` exists.
 pub fn ament_prefix_with_deps(project_store: &ProjectStore) -> String {
     let existing = std::env::var("AMENT_PREFIX_PATH").unwrap_or_default();
     let dep_install = &project_store.install;
@@ -77,10 +77,10 @@ pub fn ament_prefix_with_deps(project_store: &ProjectStore) -> String {
 
 // ── dep layer build ───────────────────────────────────────────────────────────
 
-/// Build all source-pulled worktrees in `<project>/.rox/src/` into
-/// `<project>/.rox/install/`.
+/// Build all source-pulled worktrees in `<project>/.rosup/src/` into
+/// `<project>/.rosup/install/`.
 ///
-/// Skipped when `.rox/src/` is empty or the install dir is already populated,
+/// Skipped when `.rosup/src/` is empty or the install dir is already populated,
 /// unless `rebuild` is `true`.
 pub fn build_dep_layer(
     project_root: &Path,
@@ -90,7 +90,7 @@ pub fn build_dep_layer(
     let src = &project_store.src;
 
     if !src.exists() {
-        debug!("no .rox/src/ — dep layer build skipped");
+        debug!("no .rosup/src/ — dep layer build skipped");
         return Ok(());
     }
 
@@ -98,7 +98,7 @@ pub fn build_dep_layer(
         .map(|mut d| d.next().is_some())
         .unwrap_or(false);
     if !has_worktrees {
-        debug!(".rox/src/ is empty — dep layer build skipped");
+        debug!(".rosup/src/ is empty — dep layer build skipped");
         return Ok(());
     }
 
@@ -258,7 +258,7 @@ fn override_build_cmd(
     cmd
 }
 
-/// Merge cmake-args from rox.toml with CLI overrides and build-type shorthands.
+/// Merge cmake-args from rosup.toml with CLI overrides and build-type shorthands.
 fn merged_cmake_args(base: &[String], extra: &[String], release: bool, debug: bool) -> Vec<String> {
     let mut args: Vec<String> = base.to_vec();
     args.extend_from_slice(extra);
@@ -347,9 +347,9 @@ fn build_test_cmd(
 pub struct CleanOptions<'a> {
     /// Also remove `install/` (user workspace).
     pub all: bool,
-    /// Remove `.rox/build/` and `.rox/install/` (dep layer artifacts).
+    /// Remove `.rosup/build/` and `.rosup/install/` (dep layer artifacts).
     pub deps: bool,
-    /// Also remove `.rox/src/` worktrees (implies `deps`).
+    /// Also remove `.rosup/src/` worktrees (implies `deps`).
     pub src: bool,
     /// Clean only the named packages from `build/` and `install/`.
     pub packages: &'a [String],

@@ -7,9 +7,9 @@ default:
 build:
     cargo build --all-targets --profile {{profile}}
 
-# Run the rox CLI (e.g.: just run build, just run 'add sensor_msgs')
+# Run the rosup CLI (e.g.: just run build, just run 'add sensor_msgs')
 run *args:
-    cargo run --profile {{profile}} --bin rox -- {{args}}
+    cargo run --profile {{profile}} --bin rosup -- {{args}}
 
 # Remove build artifacts
 clean:
@@ -32,9 +32,9 @@ test:
 ci: check
     cargo nextest run --profile ci
 
-# Install the rox binary to ~/.cargo/bin
+# Install the rosup binary to ~/.cargo/bin
 install:
-    cargo install --path crates/rox-cli
+    cargo install --path crates/rosup-cli
 
 # Install required dev tools
 setup:

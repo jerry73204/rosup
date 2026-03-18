@@ -15,10 +15,10 @@ For example, the Humble cache is at:
 https://repo.ros2.org/rosdistro_cache/humble-cache.yaml.gz
 ```
 
-rox decompresses this file and stores it at `~/.rox/cache/{distro}-cache.yaml`.
-A companion timestamp file (`~/.rox/cache/{distro}-cache.timestamp`) records
+rosup decompresses this file and stores it at `~/.rosup/cache/{distro}-cache.yaml`.
+A companion timestamp file (`~/.rosup/cache/{distro}-cache.timestamp`) records
 when the cache was last fetched. The cache is considered stale after 24 hours
-and is re-fetched automatically. Use `rox resolve --refresh` to force a
+and is re-fetched automatically. Use `rosup resolve --refresh` to force a
 re-download.
 
 ## Top-Level Structure
@@ -37,7 +37,7 @@ distribution_file:
         status: maintained
 ```
 
-`distribution_file` is a list; rox uses the first element.
+`distribution_file` is a list; rosup uses the first element.
 
 ## Repository Entry
 
@@ -66,7 +66,7 @@ repositories:
 
 | Field     | Description                                      |
 |-----------|--------------------------------------------------|
-| `type`    | VCS type (`git`, `svn`, …). rox only supports `git`. |
+| `type`    | VCS type (`git`, `svn`, …). rosup only supports `git`. |
 | `url`     | Clone URL for the source repository.             |
 | `version` | Branch or tag to check out.                      |
 
@@ -75,22 +75,22 @@ repositories:
 | Field      | Description                                                          |
 |------------|----------------------------------------------------------------------|
 | `packages` | List of ROS package names provided by this repository. **This is the key field for mapping package names to source repos.** |
-| `url`      | Release repository URL (binary package releases). Not used by rox.  |
-| `version`  | Release version string. Not used by rox.                            |
+| `url`      | Release repository URL (binary package releases). Not used by rosup.  |
+| `version`  | Release version string. Not used by rosup.                            |
 
-If `release.packages` is absent or empty, rox falls back to treating the
+If `release.packages` is absent or empty, rosup falls back to treating the
 repository name itself as the single package name.
 
 ## Package-to-Repository Mapping
 
-rox builds an index of `package_name → PackageSource` at load time:
+rosup builds an index of `package_name → PackageSource` at load time:
 
 1. Iterate over all repositories in `distribution_file[0].repositories`.
 2. Skip entries with no `source` section or with `source.type != "git"`.
 3. Read `release.packages` to enumerate all package names in the repo.
 4. Map each package name to `(repo_name, source.url, source.version)`.
 
-This allows rox to resolve a dependency like `sensor_msgs` to
+This allows rosup to resolve a dependency like `sensor_msgs` to
 `https://github.com/ros2/common_interfaces.git @ humble`, even though the repo
 is named `common_interfaces`.
 
@@ -127,4 +127,4 @@ common_interfaces:
 ## Non-git Repositories
 
 Entries with `source.type != "git"` (e.g. `svn`) are silently skipped during
-index building. rox only supports git-based source pulls.
+index building. rosup only supports git-based source pulls.

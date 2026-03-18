@@ -36,7 +36,7 @@ pub enum ResolutionMethod {
         url: String,
         branch: String,
     },
-    /// Cloned using a user-supplied override from `[resolve.overrides]` in `rox.toml`.
+    /// Cloned using a user-supplied override from `[resolve.overrides]` in `rosup.toml`.
     Override {
         url: String,
         branch: Option<String>,
@@ -96,7 +96,7 @@ pub enum ResolverError {
     Git { cmd: String, detail: String },
     #[error("unresolved dependencies: {0:?}")]
     Unresolved(Vec<String>),
-    #[error("no ROS distro configured — set ROS_DISTRO or add ros-distro to [resolve] in rox.toml")]
+    #[error("no ROS distro configured — set ROS_DISTRO or add ros-distro to [resolve] in rosup.toml")]
     NoDistro,
 }
 
@@ -188,9 +188,9 @@ impl Resolver {
             return Some(ResolutionMethod::Ament);
         }
 
-        // 2. User override from rox.toml (takes priority over auto-resolution).
+        // 2. User override from rosup.toml (takes priority over auto-resolution).
         if let Some(ov) = self.config.overrides.get(dep) {
-            debug!("{dep}: using rox.toml override");
+            debug!("{dep}: using rosup.toml override");
             return Some(override_method(ov));
         }
 
@@ -300,11 +300,11 @@ impl Resolver {
 
 /// Clone or update a source repository using a two-level bare clone + worktree model.
 ///
-/// # Global level (`~/.rox/src/<repo>.git`)
+/// # Global level (`~/.rosup/src/<repo>.git`)
 /// A bare git clone serves as the shared object store. Git objects are
 /// downloaded once and reused across all projects that need the same repo.
 ///
-/// # Project level (`<project>/.rox/src/<repo>/`)
+/// # Project level (`<project>/.rosup/src/<repo>/`)
 /// A git worktree checked out from the bare clone. Each project gets an
 /// isolated working directory at the pinned branch or rev. Two projects can
 /// use different branches of the same repo without conflicts.

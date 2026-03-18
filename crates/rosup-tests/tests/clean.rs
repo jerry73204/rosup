@@ -1,4 +1,4 @@
-use rox_tests::{PackageProject, TestEnv};
+use rosup_tests::{PackageProject, TestEnv};
 use std::fs;
 
 fn env() -> TestEnv {
@@ -35,8 +35,8 @@ fn clean_all_removes_install() {
 #[test]
 fn clean_deps_removes_dot_rox_artifacts() {
     let proj = PackageProject::new("my_pkg").with_dep_src("my_dep");
-    // Also pre-create .rox/build and .rox/install.
-    let rox = proj.root().join(".rox");
+    // Also pre-create .rosup/build and .rosup/install.
+    let rox = proj.root().join(".rosup");
     fs::create_dir_all(rox.join("build")).unwrap();
     fs::create_dir_all(rox.join("install")).unwrap();
 
@@ -50,14 +50,14 @@ fn clean_deps_removes_dot_rox_artifacts() {
     assert!(!rox.join("install").exists());
     assert!(
         rox.join("src").exists(),
-        ".rox/src/ must survive --deps alone"
+        ".rosup/src/ must survive --deps alone"
     );
 }
 
 #[test]
 fn clean_deps_src_removes_worktrees() {
     let proj = PackageProject::new("my_pkg").with_dep_src("my_dep");
-    let rox = proj.root().join(".rox");
+    let rox = proj.root().join(".rosup");
     fs::create_dir_all(rox.join("build")).unwrap();
     fs::create_dir_all(rox.join("install")).unwrap();
 

@@ -1,9 +1,9 @@
-use rox_tests::TestEnv;
+use rosup_tests::TestEnv;
 use tempfile::TempDir;
 
 fn env_with_cache() -> (TestEnv, TempDir) {
     // We need the project dir to be a valid rox project for the CLI to not complain
-    // about missing rox.toml when searching. Actually rox search doesn't require a
+    // about missing rosup.toml when searching. Actually rox search doesn't require a
     // project — we just need any dir as cwd.
     let dir = TempDir::new().unwrap();
     let te = TestEnv::new().with_cache();

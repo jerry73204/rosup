@@ -1,5 +1,5 @@
 [package]
-name = "rox-tests"
+name = "rosup-tests"
 version.workspace = true
 edition.workspace = true
 publish = false

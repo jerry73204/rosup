@@ -1,4 +1,4 @@
-use rox_tests::{PackageProject, TestEnv};
+use rosup_tests::{PackageProject, TestEnv};
 
 /// Create a package project with a dep and the humble cache in the fake home.
 fn setup(dep: &str) -> (PackageProject, TestEnv) {
@@ -7,7 +7,7 @@ fn setup(dep: &str) -> (PackageProject, TestEnv) {
         "[package]\nname = \"my_pkg\"\n\n[resolve]\nros_distro = \"humble\"\n",
     );
     // Overwrite package.xml to include the dep.
-    rox_tests::project::write_package_xml(proj.root(), "my_pkg", &[dep]);
+    rosup_tests::project::write_package_xml(proj.root(), "my_pkg", &[dep]);
     let te = TestEnv::new().with_cache();
     (proj, te)
 }

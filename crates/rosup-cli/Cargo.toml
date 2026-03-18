@@ -1,15 +1,15 @@
 [package]
-name = "rox-cli"
+name = "rosup-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "rox"
+name = "rosup"
 path = "src/main.rs"
 
 [dependencies]
-rox-core.workspace = true
+rosup-core.workspace = true
 clap.workspace = true
 color-eyre.workspace = true
 eyre.workspace = true

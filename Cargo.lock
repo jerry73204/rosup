@@ -1262,20 +1262,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "rox-cli"
+name = "rosup-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
  "eyre",
  "glob",
- "rox-core",
+ "rosup-core",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
-name = "rox-core"
+name = "rosup-core"
 version = "0.1.0"
 dependencies = [
  "dirs",
@@ -1294,7 +1294,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rox-tests"
+name = "rosup-tests"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",

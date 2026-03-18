@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Result, WrapErr};
-use rox_core::{
+use rosup_core::{
     builder::{self, BuildOptions, CleanOptions, TestOptions},
     init::{self, InitMode},
     manifest::{self, DepTag},
@@ -13,7 +13,7 @@ use rox_core::{
 };
 
 #[derive(Parser)]
-#[command(name = "rox", about = "A Cargo-like package manager for ROS 2")]
+#[command(name = "rosup", about = "A Cargo-like package manager for ROS 2")]
 #[command(version, propagate_version = true)]
 struct Cli {
     /// Increase verbosity (-v, -vv, -vvv)
@@ -26,12 +26,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Initialize a rox.toml for an existing package or workspace
+    /// Initialize a rosup.toml for an existing package or workspace
     Init {
         /// Force workspace mode
         #[arg(long)]
         workspace: bool,
-        /// Overwrite an existing rox.toml
+        /// Overwrite an existing rosup.toml
         #[arg(long)]
         force: bool,
     },
@@ -144,10 +144,10 @@ enum Command {
         /// Also remove install/ (user workspace)
         #[arg(long)]
         all: bool,
-        /// Remove .rox/build/ and .rox/install/ (dep layer artifacts)
+        /// Remove .rosup/build/ and .rosup/install/ (dep layer artifacts)
         #[arg(long)]
         deps: bool,
-        /// Also remove .rox/src/ worktrees (implies --deps)
+        /// Also remove .rosup/src/ worktrees (implies --deps)
         #[arg(long, requires = "deps")]
         src: bool,
         /// Clean only the specified packages
@@ -242,7 +242,7 @@ fn cmd_init(force_workspace: bool, force: bool) -> Result<()> {
     println!(
         "Initialized {} manifest at {}",
         mode_label,
-        result.rox_toml_path.display()
+        result.rosup_toml_path.display()
     );
     Ok(())
 }
@@ -531,7 +531,7 @@ fn collect_dep_names(project: &Project) -> Result<Vec<String>> {
         let pkg_xml = project.root.join("package.xml");
         if pkg_xml.exists() {
             vec![
-                rox_core::package_xml::parse_file(&pkg_xml)
+                rosup_core::package_xml::parse_file(&pkg_xml)
                     .map_err(|e| color_eyre::eyre::eyre!("{e}"))?,
             ]
         } else {
@@ -618,7 +618,7 @@ fn find_member_xml(root: &std::path::Path, name: &str) -> Result<std::path::Path
                 let entry: std::path::PathBuf = entry.wrap_err("glob error")?;
                 let pkg_xml = entry.join("package.xml");
                 if pkg_xml.exists() {
-                    let manifest = rox_core::package_xml::parse_file(&pkg_xml)?;
+                    let manifest = rosup_core::package_xml::parse_file(&pkg_xml)?;
                     if manifest.name == name {
                         return Ok(pkg_xml);
                     }

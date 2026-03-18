@@ -1,20 +1,20 @@
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::config::{RoxConfig, WorkspaceConfig};
+use crate::config::{RosupConfig, WorkspaceConfig};
 use crate::package_xml::{self, PackageManifest};
 
 #[derive(Debug, Error)]
 pub enum ProjectError {
-    #[error("no rox.toml found in {0} or any parent directory — run `rox init`")]
+    #[error("no rosup.toml found in {0} or any parent directory — run `rox init`")]
     NotFound(PathBuf),
-    #[error("failed to read rox.toml at {path}: {source}")]
+    #[error("failed to read rosup.toml at {path}: {source}")]
     Io {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("failed to parse rox.toml at {path}: {source}")]
+    #[error("failed to parse rosup.toml at {path}: {source}")]
     Parse {
         path: PathBuf,
         #[source]
@@ -31,13 +31,13 @@ pub enum ProjectError {
 /// A fully loaded rox project rooted at a specific directory.
 #[derive(Debug)]
 pub struct Project {
-    /// Directory containing rox.toml.
+    /// Directory containing rosup.toml.
     pub root: PathBuf,
-    pub config: RoxConfig,
+    pub config: RosupConfig,
 }
 
 impl Project {
-    /// Load a project by walking up from `start` until a rox.toml is found.
+    /// Load a project by walking up from `start` until a rosup.toml is found.
     pub fn load_from(start: &Path) -> Result<Self, ProjectError> {
         let root = find_root(start).ok_or_else(|| ProjectError::NotFound(start.to_owned()))?;
         Self::load_at(&root)
@@ -45,12 +45,12 @@ impl Project {
 
     /// Load a project from an explicit root directory.
     pub fn load_at(root: &Path) -> Result<Self, ProjectError> {
-        let toml_path = root.join("rox.toml");
+        let toml_path = root.join("rosup.toml");
         let content = std::fs::read_to_string(&toml_path).map_err(|e| ProjectError::Io {
             path: toml_path.clone(),
             source: e,
         })?;
-        let config: RoxConfig = toml::from_str(&content).map_err(|e| ProjectError::Parse {
+        let config: RosupConfig = toml::from_str(&content).map_err(|e| ProjectError::Parse {
             path: toml_path,
             source: e,
         })?;
@@ -70,7 +70,7 @@ impl Project {
     }
 }
 
-/// Walk parent directories looking for a rox.toml file.
+/// Walk parent directories looking for a rosup.toml file.
 fn find_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_absolute() {
         start.to_owned()
@@ -79,7 +79,7 @@ fn find_root(start: &Path) -> Option<PathBuf> {
     };
 
     loop {
-        if current.join("rox.toml").exists() {
+        if current.join("rosup.toml").exists() {
             return Some(current);
         }
         if !current.pop() {
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn find_root_walks_up() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("rox.toml"), "[package]\nname = \"x\"\n").unwrap();
+        fs::write(tmp.path().join("rosup.toml"), "[package]\nname = \"x\"\n").unwrap();
         let nested = tmp.path().join("a/b/c");
         fs::create_dir_all(&nested).unwrap();
         assert_eq!(find_root(&nested).unwrap(), tmp.path());
@@ -153,7 +153,7 @@ mod tests {
     fn load_package_project() {
         let tmp = TempDir::new().unwrap();
         fs::write(
-            tmp.path().join("rox.toml"),
+            tmp.path().join("rosup.toml"),
             "[package]\nname = \"my_pkg\"\n",
         )
         .unwrap();
@@ -177,7 +177,7 @@ mod tests {
         copy_fixture("package_xml/experimental_pkg.xml", &pkg_ex, "package.xml");
 
         fs::write(
-            tmp.path().join("rox.toml"),
+            tmp.path().join("rosup.toml"),
             "[workspace]\nmembers = [\"src/*\"]\nexclude = [\"src/experimental_*\"]\n",
         )
         .unwrap();

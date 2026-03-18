@@ -1,4 +1,4 @@
-use rox_tests::TestEnv;
+use rosup_tests::TestEnv;
 use std::fs;
 use tempfile::TempDir;
 
@@ -30,7 +30,7 @@ fn clone_invokes_git_clone() {
 }
 
 #[test]
-fn clone_creates_rox_toml() {
+fn clone_creates_rosup_toml() {
     let (te, dir) = env_with_cache();
     // fake-git creates package.xml at dest root by default.
     te.cmd(dir.path())
@@ -41,8 +41,8 @@ fn clone_creates_rox_toml() {
     // solo_pkg repo is named "solo_pkg" in the fixture.
     let dest = dir.path().join("solo_pkg");
     assert!(
-        dest.join("rox.toml").exists(),
-        "rox.toml should be created in cloned dir"
+        dest.join("rosup.toml").exists(),
+        "rosup.toml should be created in cloned dir"
     );
 }
 
@@ -68,9 +68,9 @@ fn clone_workspace_mode_for_multi_package_repo() {
         .success();
 
     let dest = dir.path().join("common_interfaces");
-    let toml = fs::read_to_string(dest.join("rox.toml")).unwrap();
+    let toml = fs::read_to_string(dest.join("rosup.toml")).unwrap();
     assert!(
         toml.contains("[workspace]"),
-        "multi-package clone should produce workspace rox.toml"
+        "multi-package clone should produce workspace rosup.toml"
     );
 }

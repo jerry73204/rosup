@@ -1,4 +1,4 @@
-use rox_tests::{PackageProject, TestEnv};
+use rosup_tests::{PackageProject, TestEnv};
 use std::fs;
 
 fn env() -> TestEnv {

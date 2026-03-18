@@ -10,7 +10,7 @@ pub struct PackageProject {
 }
 
 impl PackageProject {
-    /// Create a package project with `package.xml` and `rox.toml`.
+    /// Create a package project with `package.xml` and `rosup.toml`.
     pub fn new(name: &str) -> Self {
         Self::with_deps(name, &[])
     }
@@ -19,15 +19,15 @@ impl PackageProject {
     pub fn with_deps(name: &str, deps: &[&str]) -> Self {
         let dir = TempDir::new().expect("tempdir");
         write_package_xml(dir.path(), name, deps);
-        write_rox_toml(dir.path(), &format!("[package]\nname = \"{name}\"\n"));
+        write_rosup_toml(dir.path(), &format!("[package]\nname = \"{name}\"\n"));
         Self { dir }
     }
 
-    /// Create a package project with a custom rox.toml body.
+    /// Create a package project with a custom rosup.toml body.
     pub fn with_toml(name: &str, toml_body: &str) -> Self {
         let dir = TempDir::new().expect("tempdir");
         write_package_xml(dir.path(), name, &[]);
-        write_rox_toml(dir.path(), toml_body);
+        write_rosup_toml(dir.path(), toml_body);
         Self { dir }
     }
 
@@ -35,17 +35,17 @@ impl PackageProject {
         self.dir.path()
     }
 
-    /// Pre-populate `.rox/install/` with a stub file so dep layer is seen as built.
+    /// Pre-populate `.rosup/install/` with a stub file so dep layer is seen as built.
     pub fn with_dep_layer_stub(self) -> Self {
-        let install = self.dir.path().join(".rox/install");
+        let install = self.dir.path().join(".rosup/install");
         fs::create_dir_all(&install).unwrap();
         fs::write(install.join(".stub"), "").unwrap();
         self
     }
 
-    /// Pre-populate `.rox/src/<name>/` so dep layer source exists.
+    /// Pre-populate `.rosup/src/<name>/` so dep layer source exists.
     pub fn with_dep_src(self, repo_name: &str) -> Self {
-        let src = self.dir.path().join(".rox/src").join(repo_name);
+        let src = self.dir.path().join(".rosup/src").join(repo_name);
         fs::create_dir_all(&src).unwrap();
         self
     }
@@ -84,7 +84,7 @@ impl WorkspaceProject {
             member_lines.push_str(&format!("  \"src/{name}\",\n"));
         }
         let toml = format!("[workspace]\nmembers = [\n{member_lines}]\n");
-        write_rox_toml(dir.path(), &toml);
+        write_rosup_toml(dir.path(), &toml);
         Self { dir }
     }
 
@@ -114,19 +114,19 @@ pub fn write_package_xml(dir: &Path, name: &str, deps: &[&str]) {
     fs::write(dir.join("package.xml"), xml).unwrap();
 }
 
-pub fn write_rox_toml(dir: &Path, content: &str) {
-    fs::write(dir.join("rox.toml"), content).unwrap();
+pub fn write_rosup_toml(dir: &Path, content: &str) {
+    fs::write(dir.join("rosup.toml"), content).unwrap();
 }
 
-/// Path to the rosdistro fixture YAML bundled with rox-core.
+/// Path to the rosdistro fixture YAML bundled with rosup-core.
 pub fn humble_cache_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/rox-core/tests/fixtures/rosdistro/humble-cache-sample.yaml")
+        .join("../../crates/rosup-core/tests/fixtures/rosdistro/humble-cache-sample.yaml")
 }
 
 /// Populate a fake HOME's rox cache with the sample humble YAML.
 pub fn install_humble_cache(home: &Path) {
-    let cache_dir = home.join(".rox/cache");
+    let cache_dir = home.join(".rosup/cache");
     fs::create_dir_all(&cache_dir).unwrap();
     let content =
         fs::read_to_string(humble_cache_fixture()).expect("humble-cache-sample.yaml not found");

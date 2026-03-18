@@ -1,18 +1,18 @@
 # Architecture
 
-rox is a Cargo-like package manager for ROS 2. It wraps the existing ROS 2
+rosup is a Cargo-like package manager for ROS 2. It wraps the existing ROS 2
 toolchain (colcon, rosdep, ament) behind a single CLI that provides automatic
-dependency resolution, a unified manifest (`rox.toml`), and a fluent developer
+dependency resolution, a unified manifest (`rosup.toml`), and a fluent developer
 experience.
 
 ## Core Principles
 
-1. **`package.xml` is the source of truth for dependencies.** rox reads and
+1. **`package.xml` is the source of truth for dependencies.** rosup reads and
    writes `package.xml` — it does not replace it. This keeps packages
    interoperable with the broader ROS ecosystem (bloom, rosdep, colcon).
 
-2. **One `rox.toml` per project, at the root.** Whether the project is a
-   single package or a multi-package workspace, there is exactly one `rox.toml`.
+2. **One `rosup.toml` per project, at the root.** Whether the project is a
+   single package or a multi-package workspace, there is exactly one `rosup.toml`.
    No per-package sidecar files inside a workspace.
 
 3. **Automatic dependency resolution.** Every command that needs dependencies
@@ -21,9 +21,9 @@ experience.
 4. **Binary first, source as fallback.** Dependencies are resolved in order:
    ament environment → rosdep (binary) → source pull from rosdistro.
 
-5. **Require base ROS environment.** rox expects the user to have sourced the
+5. **Require base ROS environment.** rosup expects the user to have sourced the
    base ROS installation (`/opt/ros/{distro}/setup.bash`). This sets
-   `AMENT_PREFIX_PATH` and is the standard ROS 2 convention. rox warns clearly
+   `AMENT_PREFIX_PATH` and is the standard ROS 2 convention. rosup warns clearly
    if the base environment is not detected and does not attempt to source it
    automatically.
 
@@ -31,28 +31,28 @@ experience.
 
 ### Single-Package Mode
 
-`rox.toml` sits next to `package.xml`. Suitable for developing or experimenting
+`rosup.toml` sits next to `package.xml`. Suitable for developing or experimenting
 with a single ROS package.
 
 ```
 my_package/
-├── rox.toml
+├── rosup.toml
 ├── package.xml
 ├── CMakeLists.txt
 └── src/
 ```
 
-Detected when `rox.toml` contains a `[package]` section.
+Detected when `rosup.toml` contains a `[package]` section.
 
 ### Workspace Mode
 
-`rox.toml` sits at the workspace root. Member packages live under `src/` (or
+`rosup.toml` sits at the workspace root. Member packages live under `src/` (or
 other paths declared in `members`). Each member has its own `package.xml` but
-no `rox.toml`.
+no `rosup.toml`.
 
 ```
 my_workspace/
-├── rox.toml
+├── rosup.toml
 ├── src/
 │   ├── my_robot/
 │   │   ├── package.xml
@@ -65,7 +65,7 @@ my_workspace/
 └── log/
 ```
 
-Detected when `rox.toml` contains a `[workspace]` section.
+Detected when `rosup.toml` contains a `[workspace]` section.
 
 ## Dependency Resolution
 
@@ -81,11 +81,11 @@ declared in `package.xml` files:
    └─ yes → install via system package manager → done
    └─ no  → continue
 
-3. Is there a user override in [resolve.overrides] in rox.toml?
+3. Is there a user override in [resolve.overrides] in rosup.toml?
    └─ yes → use override URL/branch
    └─ no  → look up source URL in rosdistro distribution cache
 
-4. Clone/update source repo into per-project .rox/src/
+4. Clone/update source repo into per-project .rosup/src/
    └─ found → clone → done
    └─ not found → error
 ```
@@ -100,20 +100,20 @@ host.
 Source packages are tracked at the **repository level**, not the package level.
 A single repository often contains multiple ROS packages (e.g.,
 `common_interfaces` contains `sensor_msgs`, `std_msgs`, `geometry_msgs`, etc.).
-rox groups source-pulled dependencies by repository before cloning to avoid
+rosup groups source-pulled dependencies by repository before cloning to avoid
 redundant git operations.
 
-Users can override any dependency via `[resolve.overrides]` in `rox.toml`,
+Users can override any dependency via `[resolve.overrides]` in `rosup.toml`,
 which is the escape hatch for private or custom forks not listed in rosdistro.
 
 ## Storage Layout
 
-### Global store (`~/.rox/`)
+### Global store (`~/.rosup/`)
 
 Shared across all projects. Contains only data that is safe to share:
 
 ```
-~/.rox/
+~/.rosup/
 ├── cache/                        # rosdistro YAML files (download cache)
 │   ├── humble-cache.yaml
 │   └── humble-cache.timestamp
@@ -126,18 +126,18 @@ Bare clones act as a download cache: git objects are fetched once globally and
 reused across all projects that need the same repository. The global store is
 never a colcon workspace — it holds no build or install artifacts.
 
-### Per-project store (`.rox/`)
+### Per-project store (`.rosup/`)
 
-One `.rox/` directory per project root, analogous to Cargo's `target/`. It is
+One `.rosup/` directory per project root, analogous to Cargo's `target/`. It is
 git-ignored and owned entirely by that project.
 
 ```
 ~/repos/AutoSDV/
-├── rox.toml
+├── rosup.toml
 ├── src/
 │   └── my_pkg/package.xml
-├── .rox/                         # per-project, git-ignored
-│   ├── src/                      # git worktrees backed by ~/.rox/src/*.git
+├── .rosup/                         # per-project, git-ignored
+│   ├── src/                      # git worktrees backed by ~/.rosup/src/*.git
 │   │   ├── common_interfaces/    # worktree @ humble branch
 │   │   └── rclcpp/
 │   ├── build/                    # colcon build artifacts for dep layer
@@ -153,7 +153,7 @@ repository without conflicts or redundant downloads.
 
 ## Build Flow
 
-`rox build` runs in two phases:
+`rosup build` runs in two phases:
 
 ```
 Phase 0: Check base ROS environment
@@ -166,22 +166,22 @@ Phase 1: Resolve dependencies
 Phase 2: Build dep layer (only if source deps exist)
   └─ colcon build \
        --packages-select <source-pulled-pkgs> \
-       --build-base .rox/build \
-       --install-base .rox/install
+       --build-base .rosup/build \
+       --install-base .rosup/install
      env: AMENT_PREFIX_PATH = /opt/ros/{distro} + existing AMENT_PREFIX_PATH
-  └─ skip if .rox/install already satisfies all source deps (incremental)
+  └─ skip if .rosup/install already satisfies all source deps (incremental)
 
 Phase 3: Build user workspace
   └─ colcon build [--symlink-install] [--packages-select ...]
-     env: AMENT_PREFIX_PATH = <project>/.rox/install + /opt/ros/{distro} + existing
+     env: AMENT_PREFIX_PATH = <project>/.rosup/install + /opt/ros/{distro} + existing
 ```
 
-`rox run` and `rox launch` source `<project>/.rox/install/local_setup.bash`
+`rosup run` and `rosup launch` source `<project>/.rosup/install/local_setup.bash`
 and `<project>/install/local_setup.bash` before delegating to `ros2`.
 
 ## Underlying Tools
 
-rox delegates to existing ROS 2 tools rather than reimplementing them:
+rosup delegates to existing ROS 2 tools rather than reimplementing them:
 
 | Task                      | Delegated to                  |
 |---------------------------|-------------------------------|
@@ -189,6 +189,6 @@ rox delegates to existing ROS 2 tools rather than reimplementing them:
 | Test orchestration        | colcon test                   |
 | Binary dep install        | rosdep → apt/dnf/brew         |
 | Source repo index         | rosdistro YAML cache          |
-| Source repo object cache  | git (bare clones in ~/.rox/)  |
+| Source repo object cache  | git (bare clones in ~/.rosup/)  |
 | Per-project working trees | git worktree                  |
 | Package launch            | ros2 run / ros2 launch        |

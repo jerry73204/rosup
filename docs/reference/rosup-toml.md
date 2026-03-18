@@ -1,9 +1,9 @@
-# rox.toml Reference
+# rosup.toml Reference
 
-`rox.toml` is the project manifest for rox. There is exactly one per project,
+`rosup.toml` is the project manifest for rosup. There is exactly one per project,
 located at the project root.
 
-A `rox.toml` operates in one of two modes depending on which top-level section
+A `rosup.toml` operates in one of two modes depending on which top-level section
 is present:
 
 - **`[package]`** — single-package mode

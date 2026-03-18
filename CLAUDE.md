@@ -1,4 +1,4 @@
-# rox — Claude guidance
+# rosup — Claude guidance
 
 ## Project
 
@@ -15,8 +15,8 @@ just build    # cargo build --all-targets (dev-release profile)
 just check    # nightly fmt check + clippy -D warnings
 just test     # cargo nextest run --no-fail-fast
 just ci       # check + test
-just run ...  # run the rox CLI, e.g. just run --help
-just install  # cargo install --path crates/rox-cli
+just run ...  # run the rosup CLI, e.g. just run --help
+just install  # cargo install --path crates/rosup-cli
 ```
 
 **Run `just ci` before marking any implementation task complete.**
@@ -26,19 +26,19 @@ just install  # cargo install --path crates/rox-cli
 ```
 Cargo.toml              # workspace manifest only — no [package]
 crates/
-  rox-core/             # library: config, package_xml, manifest, init, project
-  rox-cli/              # binary: clap CLI (bin name: rox)
+  rosup-core/           # library: config, package_xml, manifest, init, project
+  rosup-cli/            # binary: clap CLI (bin name: rosup)
   shims/                # fake colcon/git/rosdep binaries for integration tests
-  rox-tests/            # integration test crate (spawns rox binary)
+  rosup-tests/          # integration test crate (spawns rosup binary)
 docs/
   design/               # architecture
-  reference/            # rox.toml and package.xml specs, CLI reference
+  reference/            # rosup.toml and package.xml specs, CLI reference
   phases/               # phased work items with checkboxes
 ```
 
 ## Test fixtures
 
-Fixture files live in `crates/rox-core/tests/fixtures/`. Tests load them via
+Fixture files live in `crates/rosup-core/tests/fixtures/`. Tests load them via
 the shared helpers in `lib.rs`:
 
 ```rust
@@ -50,10 +50,10 @@ file instead.
 
 ## Key conventions
 
-- `package.xml` is the source of truth for ROS 2 deps — rox reads and writes
+- `package.xml` is the source of truth for ROS 2 deps — rosup reads and writes
   it, never replaces it.
-- One `rox.toml` per project at the root. `[workspace]` and `[package]` are
+- One `rosup.toml` per project at the root. `[workspace]` and `[package]` are
   mutually exclusive.
 - XML manipulation in `manifest.rs` is line-level to preserve comments,
   processing instructions, and indentation.
-- Errors use `thiserror` in `rox-core` and `eyre`/`color-eyre` in `rox-cli`.
+- Errors use `thiserror` in `rosup-core` and `eyre`/`color-eyre` in `rosup-cli`.

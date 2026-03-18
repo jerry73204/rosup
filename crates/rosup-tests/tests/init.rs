@@ -1,4 +1,4 @@
-use rox_tests::{TestEnv, project::write_package_xml};
+use rosup_tests::{TestEnv, project::write_package_xml};
 use std::fs;
 use tempfile::TempDir;
 
@@ -18,7 +18,7 @@ fn init_package_mode() {
         .success()
         .stdout(predicates::str::contains("package"));
 
-    let toml = fs::read_to_string(dir.path().join("rox.toml")).unwrap();
+    let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
     assert!(toml.contains("[package]"));
     assert!(toml.contains("name = \"my_pkg\""));
 }
@@ -40,7 +40,7 @@ fn init_workspace_mode() {
         .success()
         .stdout(predicates::str::contains("workspace"));
 
-    let toml = fs::read_to_string(dir.path().join("rox.toml")).unwrap();
+    let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
     assert!(toml.contains("[workspace]"));
     assert!(toml.contains("pkg_a"));
     assert!(toml.contains("pkg_b"));
@@ -54,14 +54,14 @@ fn init_adds_gitignore_entry() {
     env().cmd(dir.path()).args(["init"]).assert().success();
 
     let gitignore = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-    assert!(gitignore.lines().any(|l| l.trim() == ".rox/"));
+    assert!(gitignore.lines().any(|l| l.trim() == ".rosup/"));
 }
 
 #[test]
 fn init_no_overwrite_without_force() {
     let dir = TempDir::new().unwrap();
     write_package_xml(dir.path(), "my_pkg", &[]);
-    fs::write(dir.path().join("rox.toml"), "[package]\nname = \"old\"\n").unwrap();
+    fs::write(dir.path().join("rosup.toml"), "[package]\nname = \"old\"\n").unwrap();
 
     env()
         .cmd(dir.path())
@@ -75,7 +75,7 @@ fn init_no_overwrite_without_force() {
 fn init_force_overwrites() {
     let dir = TempDir::new().unwrap();
     write_package_xml(dir.path(), "my_pkg", &[]);
-    fs::write(dir.path().join("rox.toml"), "[package]\nname = \"old\"\n").unwrap();
+    fs::write(dir.path().join("rosup.toml"), "[package]\nname = \"old\"\n").unwrap();
 
     env()
         .cmd(dir.path())
@@ -83,7 +83,7 @@ fn init_force_overwrites() {
         .assert()
         .success();
 
-    let toml = fs::read_to_string(dir.path().join("rox.toml")).unwrap();
+    let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
     assert!(toml.contains("name = \"my_pkg\""));
 }
 
