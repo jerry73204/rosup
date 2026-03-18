@@ -32,7 +32,7 @@ rosup build
 ## Installation
 
 ```sh
-cargo install --git https://github.com/jerry73204/rosup.git --bin rosup
+cargo install rosup
 ```
 
 ## Quick start
