@@ -21,6 +21,17 @@ just install  # cargo install --path crates/rosup-cli
 
 **Run `just ci` before marking any implementation task complete.**
 
+### Integration test binary
+
+`just build` uses the `dev-release` profile (`target/dev-release/`), but
+integration tests in `rosup-tests` use `assert_cmd::Command::cargo_bin` which
+resolves to `target/debug/`. After changing `rosup-cli` or `rosup-core`, run:
+
+```
+cargo build -p rosup-cli   # rebuilds target/debug/rosup used by integration tests
+just ci                    # then run full CI
+```
+
 ## Workspace layout
 
 ```
@@ -57,3 +68,22 @@ file instead.
 - XML manipulation in `manifest.rs` is line-level to preserve comments,
   processing instructions, and indentation.
 - Errors use `thiserror` in `rosup-core` and `eyre`/`color-eyre` in `rosup-cli`.
+- TOML field names use kebab-case (`ros-distro`, `source-preference`, etc.) via
+  `#[serde(rename_all = "kebab-case")]` on config structs.
+
+### rosup.toml — `[resolve]` section
+
+- `ros-distro` is **mandatory** for all resolver operations. There is no
+  `ROS_DISTRO` env fallback (except the bare-`package.xml` path in `cmd_resolve`).
+- `overlays` is a list of ament prefix paths sourced in underlay-first order.
+  `rosup new` automatically populates it with `/opt/ros/<distro>`.
+- Overlay environments are activated once in `main()` via `apply_overlays_from_cwd()`
+  and applied to the current process with `std::env::set_var`.
+
+### Workspace vs package detection
+
+- A directory is a **package** if it has `package.xml` at the root.
+- A directory is a **workspace** only when explicitly declared: `--workspace`
+  flag on `rosup init`, or detected by `rosup clone` when multiple `package.xml`
+  files are found in the cloned repo.
+- A `src/` directory alone does **not** imply workspace mode.
