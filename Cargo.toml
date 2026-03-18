@@ -6,6 +6,7 @@ members = ["crates/*", "crates/shims"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+rust-version = "1.85"
 authors = ["jerry73204 <jerry73204@gmail.com>"]
 repository = "https://github.com/jerry73204/rosup"
 homepage = "https://github.com/jerry73204/rosup"
