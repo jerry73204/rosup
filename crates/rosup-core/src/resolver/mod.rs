@@ -96,9 +96,7 @@ pub enum ResolverError {
     Git { cmd: String, detail: String },
     #[error("unresolved dependencies: {0:?}")]
     Unresolved(Vec<String>),
-    #[error(
-        "no ROS distro configured — set ROS_DISTRO or add ros-distro to [resolve] in rosup.toml"
-    )]
+    #[error("no ROS distro configured — add ros-distro to [resolve] in rosup.toml")]
     NoDistro,
 }
 
@@ -113,11 +111,7 @@ pub struct Resolver {
 
 impl Resolver {
     pub fn new(config: ResolveConfig, project_root: &Path) -> Result<Self, ResolverError> {
-        let distro = config
-            .ros_distro
-            .clone()
-            .or_else(|| std::env::var("ROS_DISTRO").ok())
-            .ok_or(ResolverError::NoDistro)?;
+        let distro = config.ros_distro.clone().ok_or(ResolverError::NoDistro)?;
 
         let global = GlobalStore::open()?;
         global.ensure()?;

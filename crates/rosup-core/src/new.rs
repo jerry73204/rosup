@@ -59,6 +59,8 @@ pub struct NewOptions<'a> {
     pub name: &'a str,
     /// Build system to use.
     pub build_type: BuildType,
+    /// ROS distribution (e.g. "humble"). Written into `[resolve]` in `rosup.toml`.
+    pub ros_distro: &'a str,
     /// Additional `<depend>` entries for `package.xml`.
     pub deps: &'a [String],
     /// If `Some`, generate a starter node file with this name.
@@ -90,7 +92,10 @@ pub fn scaffold(opts: &NewOptions<'_>) -> Result<PathBuf, NewError> {
     // Write rosup.toml directly — we know it's a single package.
     fs_write(
         &pkg_dir.join("rosup.toml"),
-        format!("[package]\nname = \"{}\"\n", opts.name),
+        format!(
+            "[package]\nname = \"{}\"\n\n[resolve]\nros-distro = \"{}\"\n",
+            opts.name, opts.ros_distro
+        ),
     )?;
 
     // Add .rosup/ to .gitignore (new package won't have one yet).
@@ -373,6 +378,7 @@ mod tests {
     ) -> NewOptions<'a> {
         NewOptions {
             name,
+            ros_distro: "humble",
             build_type,
             deps,
             node_name,
@@ -484,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn rosup_toml_has_package_section() {
+    fn rosup_toml_has_package_and_resolve_sections() {
         let tmp = TempDir::new().unwrap();
         let pkg = scaffold(&opts(
             "my_pkg",
@@ -497,6 +503,8 @@ mod tests {
         let toml = std::fs::read_to_string(pkg.join("rosup.toml")).unwrap();
         assert!(toml.contains("[package]"));
         assert!(toml.contains("name = \"my_pkg\""));
+        assert!(toml.contains("[resolve]"));
+        assert!(toml.contains("ros-distro = \"humble\""));
     }
 
     #[test]

@@ -35,6 +35,9 @@ enum Command {
     New {
         /// Package name (also the new directory name)
         name: String,
+        /// ROS distribution (e.g. humble, jazzy); prompted interactively if omitted
+        #[arg(long)]
+        ros_distro: Option<String>,
         /// Build system (ament_cmake or ament_python); prompted interactively if omitted
         #[arg(long)]
         build_type: Option<BuildType>,
@@ -204,11 +207,12 @@ fn main() -> Result<()> {
     match cli.command {
         Command::New {
             name,
+            ros_distro,
             build_type,
             deps,
             node,
             destination,
-        } => cmd_new(name, build_type, deps, node, destination),
+        } => cmd_new(name, ros_distro, build_type, deps, node, destination),
         Command::Init { workspace, force } => cmd_init(workspace, force),
         Command::Add {
             dep_name,
@@ -293,24 +297,27 @@ fn apply_overlays_from_cwd() -> Result<HashMap<String, String>> {
         unsafe { std::env::set_var(key, val) };
     }
 
-    // Warn if ros-distro in the config disagrees with ROS_DISTRO from the overlays.
-    if let (Some(configured), Some(from_overlay)) = (
-        project.config.resolve.ros_distro.as_deref(),
-        env.get("ROS_DISTRO").map(String::as_str),
-    ) && configured != from_overlay
-    {
-        tracing::warn!(
-            "ros-distro = \"{configured}\" in rosup.toml disagrees with \
-             ROS_DISTRO=\"{from_overlay}\" from the overlay environment; \
-             dependency resolution will use \"{configured}\" but the ament \
-             environment is \"{from_overlay}\""
-        );
-    }
-
     Ok(env)
 }
 
 // ── new ───────────────────────────────────────────────────────────────────────
+
+fn prompt_ros_distro() -> Result<String> {
+    use std::io::Write;
+    print!("ROS distro (e.g. humble, jazzy): ");
+    std::io::stdout()
+        .flush()
+        .wrap_err("failed to flush stdout")?;
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .wrap_err("failed to read input")?;
+    let distro = input.trim().to_owned();
+    if distro.is_empty() {
+        color_eyre::eyre::bail!("ROS distro must not be empty");
+    }
+    Ok(distro)
+}
 
 fn prompt_build_type() -> Result<BuildType> {
     use std::io::Write;
@@ -336,11 +343,16 @@ fn prompt_build_type() -> Result<BuildType> {
 
 fn cmd_new(
     name: String,
+    ros_distro: Option<String>,
     build_type: Option<BuildType>,
     deps: Vec<String>,
     node: Option<String>,
     destination: Option<std::path::PathBuf>,
 ) -> Result<()> {
+    let ros_distro = match ros_distro {
+        Some(d) => d,
+        None => prompt_ros_distro()?,
+    };
     let build_type = match build_type {
         Some(bt) => bt,
         None => prompt_build_type()?,
@@ -351,6 +363,7 @@ fn cmd_new(
     };
     let opts = NewOptions {
         name: &name,
+        ros_distro: &ros_distro,
         build_type,
         deps: &deps,
         node_name: node.as_deref(),
@@ -446,7 +459,14 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
             let manifest = rosup_core::package_xml::parse_file(&pkg_xml)
                 .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
             let deps = manifest.deps.all().into_iter().map(str::to_owned).collect();
-            (deps, ResolveConfig::default(), cwd.clone())
+            // No rosup.toml — this is the one place where ROS_DISTRO env is
+            // accepted as a source of truth (the user must have a ROS environment
+            // sourced to be working with a bare package.xml).
+            let resolve_config = ResolveConfig {
+                ros_distro: std::env::var("ROS_DISTRO").ok(),
+                ..ResolveConfig::default()
+            };
+            (deps, resolve_config, cwd.clone())
         }
     };
 
@@ -752,22 +772,24 @@ fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
     Ok(pkg_xml)
 }
 
-/// Resolve the ROS distro: CLI flag → ROS_DISTRO env → rosup.toml → error.
+/// Resolve the ROS distro for commands that accept `--distro`: CLI flag →
+/// ros-distro in rosup.toml → error.
+///
+/// `ROS_DISTRO` from the environment is intentionally not consulted: the distro
+/// must be explicit either on the command line or in the project manifest.
 fn resolve_distro(distro: Option<String>) -> Result<String> {
     if let Some(d) = distro {
         return Ok(d);
     }
-    if let Ok(d) = std::env::var("ROS_DISTRO") {
-        return Ok(d);
-    }
-    // Last resort: read ros-distro from the nearest rosup.toml.
     if let Ok(cwd) = std::env::current_dir()
         && let Ok(project) = Project::load_from(&cwd)
         && let Some(d) = project.config.resolve.ros_distro
     {
         return Ok(d);
     }
-    color_eyre::eyre::bail!("no ROS distro specified — pass --distro or set ROS_DISTRO")
+    color_eyre::eyre::bail!(
+        "no ROS distro specified — pass --distro or add ros-distro to [resolve] in rosup.toml"
+    )
 }
 
 /// Count package.xml files under a directory (non-recursive depth-1 scan of
