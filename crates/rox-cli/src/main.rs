@@ -5,7 +5,11 @@ use rox_core::{
     init::{self, InitMode},
     manifest::{self, DepTag},
     project::Project,
-    resolver::{ResolutionMethod, Resolver, store::ProjectStore},
+    resolver::{
+        ResolutionMethod, Resolver,
+        rosdistro::DistroCache,
+        store::{GlobalStore, ProjectStore},
+    },
 };
 
 #[derive(Parser)]
@@ -212,8 +216,15 @@ fn main() -> Result<()> {
             src,
             packages,
         } => cmd_clean(all, deps, src, packages),
-        Command::Clone { .. } => todo!("rox clone"),
-        Command::Search { .. } => todo!("rox search"),
+        Command::Clone {
+            package_name,
+            distro,
+        } => cmd_clone(package_name, distro),
+        Command::Search {
+            query,
+            distro,
+            limit,
+        } => cmd_search(query, distro, limit),
         Command::Run { .. } => todo!("rox run"),
         Command::Launch { .. } => todo!("rox launch"),
     }
@@ -424,6 +435,89 @@ fn cmd_clean(all: bool, deps: bool, src: bool, packages: Vec<String>) -> Result<
     Ok(())
 }
 
+// ── search ────────────────────────────────────────────────────────────────────
+
+fn cmd_search(query: String, distro: Option<String>, limit: usize) -> Result<()> {
+    let distro = resolve_distro(distro)?;
+    let global = GlobalStore::open().map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    global
+        .ensure()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    let cache = DistroCache::load(&global.cache, &distro, false)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let results = cache.search(&query, limit);
+    if results.is_empty() {
+        println!("No packages found matching `{query}`.");
+        return Ok(());
+    }
+
+    // Align columns: compute max name width.
+    let name_w = results.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
+    let repo_w = results.iter().map(|(_, s)| s.repo.len()).max().unwrap_or(0);
+
+    for (name, src) in &results {
+        println!(
+            "{:<name_w$}  {:<repo_w$}  {} @ {}",
+            name,
+            src.repo,
+            src.url,
+            src.branch,
+            name_w = name_w,
+            repo_w = repo_w,
+        );
+    }
+    Ok(())
+}
+
+// ── clone ─────────────────────────────────────────────────────────────────────
+
+fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
+    let distro = resolve_distro(distro)?;
+    let global = GlobalStore::open().map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    global
+        .ensure()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    let cache = DistroCache::load(&global.cache, &distro, false)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let src = cache.lookup(&package_name).ok_or_else(|| {
+        color_eyre::eyre::eyre!(
+            "package `{package_name}` not found in rosdistro cache for {distro}"
+        )
+    })?;
+
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let dest = cwd.join(&src.repo);
+
+    println!("Cloning {} @ {} → {}", src.url, src.branch, dest.display());
+
+    let status = std::process::Command::new("git")
+        .arg("clone")
+        .arg("--branch")
+        .arg(&src.branch)
+        .arg(&src.url)
+        .arg(&dest)
+        .status()
+        .wrap_err("failed to run git clone")?;
+
+    if !status.success() {
+        color_eyre::eyre::bail!(
+            "git clone failed with exit code {}",
+            status.code().unwrap_or(1)
+        );
+    }
+
+    // Count package.xml files to choose init mode.
+    let pkg_xml_count = count_package_xmls(&dest);
+    let force_workspace = pkg_xml_count > 1;
+
+    init::init(&dest, force_workspace, false).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    println!("Cloned `{}` repository to {}", src.repo, dest.display());
+    Ok(())
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Collect all unique dependency names across all workspace members.
@@ -466,6 +560,35 @@ fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
         );
     }
     Ok(pkg_xml)
+}
+
+/// Resolve the ROS distro: CLI flag → ROS_DISTRO env var → error.
+fn resolve_distro(distro: Option<String>) -> Result<String> {
+    distro
+        .or_else(|| std::env::var("ROS_DISTRO").ok())
+        .ok_or_else(|| {
+            color_eyre::eyre::eyre!("no ROS distro specified — pass --distro or set ROS_DISTRO")
+        })
+}
+
+/// Count package.xml files under a directory (non-recursive depth-1 scan of
+/// the tree, up to a reasonable limit).
+fn count_package_xmls(dir: &std::path::Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut count = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.join("package.xml").exists() {
+                count += 1;
+            }
+        } else if path.file_name().is_some_and(|n| n == "package.xml") {
+            count += 1;
+        }
+    }
+    count
 }
 
 /// Find the package.xml path for a named member within a project root.

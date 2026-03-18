@@ -7,28 +7,28 @@ from the ROS index.
 
 ### 5.1 `rox search`
 
-- [ ] Load rosdistro cache (download if missing)
-- [ ] Substring / fuzzy match package names against query
-- [ ] Display results: package name, description, source URL, status
-- [ ] Support `--distro` filter
-- [ ] Support `--limit` to cap result count
+- [x] Load rosdistro cache (download if missing)
+- [x] Substring / fuzzy match package names against query
+- [x] Display results: package name, description, source URL, status
+- [x] Support `--distro` filter
+- [x] Support `--limit` to cap result count
 
 ### 5.2 `rox clone`
 
-- [ ] Look up package in rosdistro cache
-- [ ] Resolve source repository URL and branch
-- [ ] Clone repository to current directory
-- [ ] Handle multi-package repos (rosdistro repos often contain multiple packages)
-- [ ] Run `rox init` in the cloned directory
-- [ ] Support `--distro` to select distribution
+- [x] Look up package in rosdistro cache
+- [x] Resolve source repository URL and branch
+- [x] Clone repository to current directory
+- [x] Handle multi-package repos (rosdistro repos often contain multiple packages)
+- [x] Run `rox init` in the cloned directory
+- [x] Support `--distro` to select distribution
 
 ## Acceptance Criteria
 
-- [ ] `rox search navigation` returns relevant packages (nav2_core, navigation2, etc.)
-- [ ] `rox search costmap --distro jazzy` filters results to jazzy distribution
-- [ ] `rox search` with no matches prints a clear message
-- [ ] `rox clone nav2_core` clones the correct repo and creates `rox.toml`
-- [ ] `rox clone nav2_core --distro jazzy` uses the jazzy-specific source URL
-- [ ] `rox clone` of a nonexistent package prints a helpful error
-- [ ] Multi-package repos are cloned fully (user can pick which to build via `-p`)
-- [ ] Cache is downloaded on first search/clone if not present
+- [x] `rox search navigation` returns relevant packages (nav2_core, navigation2, etc.)
+- [x] `rox search costmap --distro jazzy` filters results to jazzy distribution
+- [x] `rox search` with no matches prints a clear message
+- [x] `rox clone nav2_core` clones the correct repo and creates `rox.toml`
+- [x] `rox clone nav2_core --distro jazzy` uses the jazzy-specific source URL
+- [x] `rox clone` of a nonexistent package prints a helpful error
+- [x] Multi-package repos are cloned fully (user can pick which to build via `-p`)
+- [x] Cache is downloaded on first search/clone if not present

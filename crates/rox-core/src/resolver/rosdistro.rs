@@ -87,6 +87,24 @@ impl DistroCache {
     pub fn is_empty(&self) -> bool {
         self.index.is_empty()
     }
+
+    /// Search for packages whose names contain `query` (case-insensitive).
+    ///
+    /// Returns up to `limit` results sorted alphabetically by package name.
+    pub fn search(&self, query: &str, limit: usize) -> Vec<(&str, &PackageSource)> {
+        let query_lower = query.to_lowercase();
+        let mut results: Vec<(&str, &PackageSource)> = self
+            .index
+            .iter()
+            .filter(|(name, _)| name.to_lowercase().contains(&query_lower))
+            .map(|(name, src)| (name.as_str(), src))
+            .collect();
+        results.sort_by_key(|(name, _)| *name);
+        if limit > 0 {
+            results.truncate(limit);
+        }
+        results
+    }
 }
 
 // ── cache fetch ───────────────────────────────────────────────────────────────
@@ -249,5 +267,48 @@ mod tests {
         let cache = load_fixture();
         // The fixture includes a non-git entry that should be skipped.
         assert!(cache.lookup("svn_pkg").is_none());
+    }
+
+    #[test]
+    fn search_returns_matches() {
+        let cache = load_fixture();
+        let results = cache.search("rclcpp", 10);
+        let names: Vec<&str> = results.iter().map(|(n, _)| *n).collect();
+        assert!(names.contains(&"rclcpp"));
+        assert!(names.contains(&"rclcpp_action"));
+        assert!(names.contains(&"rclcpp_components"));
+        assert!(names.contains(&"rclcpp_lifecycle"));
+    }
+
+    #[test]
+    fn search_is_case_insensitive() {
+        let cache = load_fixture();
+        let lower = cache.search("rclcpp", 10);
+        let upper = cache.search("RCLCPP", 10);
+        assert_eq!(lower.len(), upper.len());
+    }
+
+    #[test]
+    fn search_respects_limit() {
+        let cache = load_fixture();
+        let results = cache.search("rclcpp", 2);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn search_no_matches() {
+        let cache = load_fixture();
+        let results = cache.search("totally_unknown_xyz", 10);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn search_results_sorted() {
+        let cache = load_fixture();
+        let results = cache.search("rclcpp", 10);
+        let names: Vec<&str> = results.iter().map(|(n, _)| *n).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted);
     }
 }
