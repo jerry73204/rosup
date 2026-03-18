@@ -521,10 +521,27 @@ fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Collect all unique dependency names across all workspace members.
+///
+/// In package mode, reads the single `package.xml` at the project root.
+/// In workspace mode, aggregates deps from all discovered member packages.
 fn collect_dep_names(project: &Project) -> Result<Vec<String>> {
+    let manifests = if project.config.workspace.is_some() {
+        project.members()?
+    } else {
+        let pkg_xml = project.root.join("package.xml");
+        if pkg_xml.exists() {
+            vec![
+                rox_core::package_xml::parse_file(&pkg_xml)
+                    .map_err(|e| color_eyre::eyre::eyre!("{e}"))?,
+            ]
+        } else {
+            Vec::new()
+        }
+    };
+
     let mut dep_names: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for pkg in &project.members()? {
+    for pkg in &manifests {
         for dep in pkg.deps.all() {
             if seen.insert(dep.to_owned()) {
                 dep_names.push(dep.to_owned());
