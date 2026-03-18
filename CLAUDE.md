@@ -16,6 +16,7 @@ just check    # nightly fmt check + clippy -D warnings
 just test     # cargo nextest run --no-fail-fast
 just ci       # check + test
 just run ...  # run the rox CLI, e.g. just run --help
+just install  # cargo install --path crates/rox-cli
 ```
 
 **Run `just ci` before marking any implementation task complete.**
@@ -27,6 +28,8 @@ Cargo.toml              # workspace manifest only — no [package]
 crates/
   rox-core/             # library: config, package_xml, manifest, init, project
   rox-cli/              # binary: clap CLI (bin name: rox)
+  shims/                # fake colcon/git/rosdep binaries for integration tests
+  rox-tests/            # integration test crate (spawns rox binary)
 docs/
   design/               # architecture
   reference/            # rox.toml and package.xml specs, CLI reference
