@@ -7,7 +7,7 @@ use crate::package_xml;
 pub enum InitError {
     #[error("rosup.toml already exists at {0}. Use --force to overwrite.")]
     AlreadyExists(PathBuf),
-    #[error("no package.xml found in {0}")]
+    #[error("no package.xml found in {0} — pass --workspace to initialise a workspace")]
     NoPackageXml(PathBuf),
     #[error("no package.xml files found under {0}")]
     NoMembers(PathBuf),
@@ -47,9 +47,11 @@ pub fn init(dir: &Path, force_workspace: bool, force: bool) -> Result<InitResult
     }
 
     let has_package_xml = dir.join("package.xml").exists();
-    let has_src = dir.join("src").is_dir();
 
-    let mode = if force_workspace || has_src {
+    // Workspace mode must be declared explicitly via force_workspace (--workspace flag or
+    // multi-package clone detection). A src/ directory alone is not sufficient — many
+    // single ROS packages have src/ for C++ source files.
+    let mode = if force_workspace {
         InitMode::Workspace
     } else if has_package_xml {
         InitMode::Package
@@ -190,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn init_workspace_via_src_dir() {
+    fn init_workspace_explicit_flag_scans_src_dir() {
         let tmp = TempDir::new().unwrap();
         let pkg_a = tmp.path().join("src/pkg_a");
         let pkg_b = tmp.path().join("src/pkg_b");
@@ -199,12 +201,22 @@ mod tests {
         copy_fixture("package_xml/pkg_a.xml", &pkg_a, "package.xml");
         copy_fixture("package_xml/pkg_b.xml", &pkg_b, "package.xml");
 
-        let result = init(tmp.path(), false, false).unwrap();
+        let result = init(tmp.path(), true, false).unwrap();
         assert_eq!(result.mode, InitMode::Workspace);
         let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
         assert!(content.contains("[workspace]"));
         assert!(content.contains("src/pkg_a"));
         assert!(content.contains("src/pkg_b"));
+    }
+
+    #[test]
+    fn init_src_dir_alone_does_not_trigger_workspace() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src/pkg_a")).unwrap();
+
+        // Without force_workspace, src/ alone is not enough — must be explicit.
+        let err = init(tmp.path(), false, false).unwrap_err();
+        assert!(matches!(err, InitError::NoPackageXml(_)));
     }
 
     #[test]
@@ -229,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn init_errors_with_no_package_xml_or_src() {
+    fn init_errors_with_no_package_xml() {
         let tmp = TempDir::new().unwrap();
         let err = init(tmp.path(), false, false).unwrap_err();
         assert!(matches!(err, InitError::NoPackageXml(_)));
