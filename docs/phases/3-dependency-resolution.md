@@ -50,23 +50,22 @@ layer that backs source dependency management.
 The current `RoxDir` struct conflates global and per-project storage. Split it
 into two types to match the two-level design.
 
-- [ ] Replace `RoxDir` with `GlobalStore` and `ProjectStore`:
+- [x] Replace `RoxDir` with `GlobalStore` and `ProjectStore`:
   - `GlobalStore { cache: PathBuf, src: PathBuf }` — `~/.rox/cache/` and `~/.rox/src/`
   - `ProjectStore { src: PathBuf, build: PathBuf, install: PathBuf }` — `<root>/.rox/`
-- [ ] `GlobalStore::open()` — resolves from `~/.rox/`
-- [ ] `ProjectStore::open(root)` — resolves from `<root>/.rox/`
-- [ ] Both expose `ensure()` to create directories on first use
-- [ ] Update `Resolver` to hold both `GlobalStore` and `ProjectStore`
-- [ ] Rewrite `source_pull` to use bare clone + git worktree:
+- [x] `GlobalStore::open()` — resolves from `~/.rox/`
+- [x] `ProjectStore::open(root)` — resolves from `<root>/.rox/`
+- [x] Both expose `ensure()` to create directories on first use
+- [x] Update `Resolver` to hold both `GlobalStore` and `ProjectStore`
+- [x] Rewrite `source_pull` to use bare clone + git worktree:
   1. Bare clone keyed by repo name into `~/.rox/src/<repo>.git`
      (`git clone --bare <url> <bare>`, or `git -C <bare> fetch --quiet origin`)
-  2. Worktree per project: `git -C <bare> worktree add <project>/.rox/src/<repo> <branch>`
-  3. On update: `git -C <worktree> checkout <branch>` +
-     `git -C <worktree> reset --hard origin/<branch>`
-  4. Rev pin: `git -C <bare> worktree add <project>/.rox/src/<repo> <rev>`
-- [ ] Group source-pull deps by repo name before git operations — multi-package repos
+  2. Worktree per project: `git -C <bare> worktree add --detach <project>/.rox/src/<repo> <target>`
+  3. On update: `git -C <worktree> reset --hard <target>`
+  4. Rev pin: target is the commit hash instead of branch name
+- [x] Group source-pull deps by repo name before git operations — multi-package repos
       produce one bare clone and one worktree regardless of how many packages are needed
-- [ ] `rox init` adds `.rox/` to the project `.gitignore`
+- [x] `rox init` adds `.rox/` to the project `.gitignore`
 
 ## Acceptance Criteria
 
@@ -78,8 +77,8 @@ into two types to match the two-level design.
 - [x] Resolution runs automatically before `rox build` unless `--no-resolve` is passed
 - [x] `rox resolve` with no args resolves all deps for all workspace members
 - [x] Errors are clear when a dep is not found in any tier
-- [ ] `~/.rox/src/<repo>.git` is a bare clone; per-project `.rox/src/<repo>/` is a worktree
-- [ ] Two projects needing the same repo at different branches each get their own worktree
-- [ ] Multi-package repos produce one clone and one worktree (not one per package)
-- [ ] `.rox/` is added to `.gitignore` by `rox init`
+- [x] `~/.rox/src/<repo>.git` is a bare clone; per-project `.rox/src/<repo>/` is a worktree
+- [x] Two projects needing the same repo at different branches each get their own worktree
+- [x] Multi-package repos produce one clone and one worktree (not one per package)
+- [x] `.rox/` is added to `.gitignore` by `rox init`
 - [ ] Repeated resolution is idempotent (no re-clone, no re-install if already satisfied)

@@ -67,6 +67,8 @@ pub fn init(dir: &Path, force_workspace: bool, force: bool) -> Result<InitResult
         source: e,
     })?;
 
+    update_gitignore(dir)?;
+
     Ok(InitResult {
         rox_toml_path: rox_toml,
         mode,
@@ -93,6 +95,38 @@ fn generate_workspace_toml(dir: &Path) -> Result<String, InitError> {
     let member_lines: String = members.iter().map(|m| format!("  \"{}\",\n", m)).collect();
 
     Ok(format!("[workspace]\nmembers = [\n{member_lines}]\n"))
+}
+
+/// Ensure `.rox/` is listed in `<dir>/.gitignore`, appending if necessary.
+fn update_gitignore(dir: &Path) -> Result<(), InitError> {
+    let gitignore = dir.join(".gitignore");
+    let entry = ".rox/";
+
+    if gitignore.exists() {
+        let content = std::fs::read_to_string(&gitignore).map_err(|e| InitError::Io {
+            path: gitignore.clone(),
+            source: e,
+        })?;
+        if content
+            .lines()
+            .any(|l| l.trim() == ".rox" || l.trim() == ".rox/")
+        {
+            return Ok(());
+        }
+        let separator = if content.ends_with('\n') { "" } else { "\n" };
+        let new_content = format!("{content}{separator}{entry}\n");
+        std::fs::write(&gitignore, new_content).map_err(|e| InitError::Io {
+            path: gitignore,
+            source: e,
+        })?;
+    } else {
+        std::fs::write(&gitignore, format!("{entry}\n")).map_err(|e| InitError::Io {
+            path: gitignore,
+            source: e,
+        })?;
+    }
+
+    Ok(())
 }
 
 /// Walk `scan_root` for directories containing `package.xml` and return their
@@ -199,5 +233,42 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let err = init(tmp.path(), false, false).unwrap_err();
         assert!(matches!(err, InitError::NoPackageXml(_)));
+    }
+
+    #[test]
+    fn init_creates_gitignore_with_rox_entry() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
+
+        init(tmp.path(), false, false).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert!(content.lines().any(|l| l.trim() == ".rox/"));
+    }
+
+    #[test]
+    fn init_appends_to_existing_gitignore() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
+        fs::write(tmp.path().join(".gitignore"), "build/\ninstall/\n").unwrap();
+
+        init(tmp.path(), false, false).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert!(content.contains("build/"));
+        assert!(content.contains("install/"));
+        assert!(content.lines().any(|l| l.trim() == ".rox/"));
+    }
+
+    #[test]
+    fn init_does_not_duplicate_rox_in_gitignore() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
+        fs::write(tmp.path().join(".gitignore"), ".rox/\n").unwrap();
+
+        init(tmp.path(), false, false).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert_eq!(content.lines().filter(|l| l.trim() == ".rox/").count(), 1);
     }
 }

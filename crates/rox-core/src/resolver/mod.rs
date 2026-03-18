@@ -3,6 +3,7 @@ pub mod rosdep;
 pub mod rosdistro;
 pub mod store;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use thiserror::Error;
@@ -11,7 +12,7 @@ use tracing::{debug, info, warn};
 use crate::config::{DepOverride, ResolveConfig, SourcePreference};
 use rosdep::RosdepError;
 use rosdistro::DistroCache;
-use store::RoxDir;
+use store::{GlobalStore, ProjectStore};
 
 // ── public types ──────────────────────────────────────────────────────────────
 
@@ -25,9 +26,17 @@ pub enum ResolutionMethod {
         installer: String,
         packages: Vec<String>,
     },
-    /// Cloned from a source repository.
-    Source { url: String, branch: String },
-    /// Cloned using a user-supplied override from `rox.toml`.
+    /// Cloned from a source repository found in rosdistro.
+    ///
+    /// `repo` is the rosdistro repository name, which may differ from the
+    /// package name for multi-package repos (e.g. `common_interfaces` contains
+    /// `sensor_msgs`, `std_msgs`, etc.).
+    Source {
+        repo: String,
+        url: String,
+        branch: String,
+    },
+    /// Cloned using a user-supplied override from `[resolve.overrides]` in `rox.toml`.
     Override {
         url: String,
         branch: Option<String>,
@@ -42,8 +51,8 @@ impl std::fmt::Display for ResolutionMethod {
             ResolutionMethod::Binary { packages, .. } => {
                 write!(f, "binary ({})", packages.join(", "))
             }
-            ResolutionMethod::Source { url, branch } => {
-                write!(f, "source ({url} @ {branch})")
+            ResolutionMethod::Source { repo, url, branch } => {
+                write!(f, "source ({repo}: {url} @ {branch})")
             }
             ResolutionMethod::Override { url, branch, rev } => {
                 let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
@@ -96,24 +105,29 @@ pub enum ResolverError {
 pub struct Resolver {
     distro: String,
     config: ResolveConfig,
-    rox_dir: RoxDir,
+    global: GlobalStore,
+    project: ProjectStore,
 }
 
 impl Resolver {
-    pub fn new(config: ResolveConfig) -> Result<Self, ResolverError> {
+    pub fn new(config: ResolveConfig, project_root: &Path) -> Result<Self, ResolverError> {
         let distro = config
             .ros_distro
             .clone()
             .or_else(|| std::env::var("ROS_DISTRO").ok())
             .ok_or(ResolverError::NoDistro)?;
 
-        let rox_dir = RoxDir::open()?;
-        rox_dir.ensure()?;
+        let global = GlobalStore::open()?;
+        global.ensure()?;
+
+        let project = ProjectStore::open(project_root);
+        // Project dirs are created on demand in execute(), not here.
 
         Ok(Self {
             distro,
             config,
-            rox_dir,
+            global,
+            project,
         })
     }
 
@@ -124,7 +138,7 @@ impl Resolver {
         source_only: bool,
         force_refresh: bool,
     ) -> Result<ResolutionPlan, ResolverError> {
-        let cache = DistroCache::load(&self.rox_dir.cache, &self.distro, force_refresh)?;
+        let cache = DistroCache::load(&self.global.cache, &self.distro, force_refresh)?;
         let mut plan = ResolutionPlan::default();
 
         for dep in deps {
@@ -211,6 +225,7 @@ impl Resolver {
         {
             debug!("{dep}: found in rosdistro ({} @ {})", src.url, src.branch);
             return Some(ResolutionMethod::Source {
+                repo: src.repo.clone(),
                 url: src.url.clone(),
                 branch: src.branch.clone(),
             });
@@ -222,30 +237,53 @@ impl Resolver {
     fn execute(&self, plan: &ResolutionPlan) -> Result<(), ResolverError> {
         let mut binary_keys: Vec<&str> = Vec::new();
 
+        // Collect source repos, grouping by repo name.
+        // Multiple packages from the same repo (e.g. sensor_msgs + std_msgs from
+        // common_interfaces) produce a single bare clone and a single worktree.
+        // Value: (url, branch, rev)
+        let mut source_repos: HashMap<String, (String, String, Option<String>)> = HashMap::new();
+
         for dep in &plan.resolved {
             match &dep.method {
                 ResolutionMethod::Ament => {
                     debug!("{}: already installed, skipping", dep.name);
                 }
-                ResolutionMethod::Binary { packages, .. } => {
-                    info!("{}: will install via rosdep", dep.name);
+                ResolutionMethod::Binary { .. } => {
                     binary_keys.push(&dep.name);
-                    let _ = packages;
                 }
-                ResolutionMethod::Source { url, branch } => {
-                    info!("{}: cloning from {url} @ {branch}", dep.name);
-                    source_pull(&self.rox_dir.src, &dep.name, url, branch, None)?;
+                ResolutionMethod::Source { repo, url, branch } => {
+                    // First dep that references this repo wins for url/branch.
+                    source_repos
+                        .entry(repo.clone())
+                        .or_insert_with(|| (url.clone(), branch.clone(), None));
                 }
                 ResolutionMethod::Override { url, branch, rev } => {
-                    info!("{}: cloning override from {url}", dep.name);
-                    source_pull(
-                        &self.rox_dir.src,
-                        &dep.name,
-                        url,
-                        branch.as_deref().unwrap_or("HEAD"),
-                        rev.as_deref(),
-                    )?;
+                    // Override deps each get their own repo keyed by dep name.
+                    source_repos.entry(dep.name.clone()).or_insert_with(|| {
+                        (
+                            url.clone(),
+                            branch.clone().unwrap_or_else(|| "HEAD".to_owned()),
+                            rev.clone(),
+                        )
+                    });
                 }
+            }
+        }
+
+        if !source_repos.is_empty() {
+            // Create project dirs only when we actually need them.
+            self.project.ensure()?;
+
+            for (repo_name, (url, branch, rev)) in &source_repos {
+                info!("pulling {repo_name} from {url} @ {branch}");
+                source_pull(
+                    &self.global,
+                    &self.project,
+                    repo_name,
+                    url,
+                    branch,
+                    rev.as_deref(),
+                )?;
             }
         }
 
@@ -260,39 +298,56 @@ impl Resolver {
 
 // ── source pull ───────────────────────────────────────────────────────────────
 
-/// Clone or update a source package into `src_dir/<name>`.
+/// Clone or update a source repository using a two-level bare clone + worktree model.
+///
+/// # Global level (`~/.rox/src/<repo>.git`)
+/// A bare git clone serves as the shared object store. Git objects are
+/// downloaded once and reused across all projects that need the same repo.
+///
+/// # Project level (`<project>/.rox/src/<repo>/`)
+/// A git worktree checked out from the bare clone. Each project gets an
+/// isolated working directory at the pinned branch or rev. Two projects can
+/// use different branches of the same repo without conflicts.
 pub fn source_pull(
-    src_dir: &Path,
-    name: &str,
+    global: &GlobalStore,
+    project: &ProjectStore,
+    repo_name: &str,
     url: &str,
     branch: &str,
     rev: Option<&str>,
 ) -> Result<(), ResolverError> {
-    let dest = src_dir.join(name);
+    let bare = global.bare_clone(repo_name);
+    let worktree = project.worktree(repo_name);
+    let target = rev.unwrap_or(branch);
 
-    if dest.join(".git").exists() {
-        // Already cloned — fetch and reset.
-        info!("updating {name}");
-        git(&dest, &["fetch", "--quiet", "origin"])?;
-        let target = rev.unwrap_or(branch);
-        git(&dest, &["checkout", "--quiet", target])?;
-        if rev.is_none() {
-            git(
-                &dest,
-                &["reset", "--quiet", "--hard", &format!("origin/{branch}")],
-            )?;
-        }
+    // ── Step 1: ensure bare clone exists and is up to date ──────────────────
+    if bare.exists() {
+        info!("fetching {repo_name}");
+        git(&bare, &["fetch", "--quiet", "origin"])?;
     } else {
-        // Fresh clone.
-        info!("cloning {name} from {url}");
-        let mut args = vec!["clone", "--quiet", "--branch", branch, url];
-        let dest_str = dest.display().to_string();
-        args.push(&dest_str);
-        git(src_dir, &args)?;
+        info!("cloning {repo_name} from {url}");
+        let bare_str = bare.display().to_string();
+        git(&global.src, &["clone", "--bare", "--quiet", url, &bare_str])?;
+    }
 
-        if let Some(rev) = rev {
-            git(&dest, &["checkout", "--quiet", rev])?;
-        }
+    // ── Step 2: ensure per-project worktree is at the right commit ──────────
+    if worktree.exists() {
+        // Worktree already exists — reset to the target ref.
+        git(&worktree, &["reset", "--quiet", "--hard", target])?;
+    } else {
+        // Add a new detached worktree from the bare clone.
+        let worktree_str = worktree.display().to_string();
+        git(
+            &bare,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "--detach",
+                &worktree_str,
+                target,
+            ],
+        )?;
     }
 
     Ok(())

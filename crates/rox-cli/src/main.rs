@@ -303,7 +303,7 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
         return Ok(());
     }
 
-    let resolver = Resolver::new(project.config.resolve.clone())?;
+    let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
     let plan = resolver
         .resolve(&dep_names, dry_run, source_only, refresh)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
@@ -312,7 +312,9 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
         let action = match &dep.method {
             ResolutionMethod::Ament => "already installed".to_owned(),
             ResolutionMethod::Binary { packages, .. } => format!("binary: {}", packages.join(", ")),
-            ResolutionMethod::Source { url, branch } => format!("source: {url} @ {branch}"),
+            ResolutionMethod::Source { repo, url, branch } => {
+                format!("source: {repo} ({url} @ {branch})")
+            }
             ResolutionMethod::Override { url, branch, rev } => {
                 let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
                 format!("override: {url} @ {loc}")
