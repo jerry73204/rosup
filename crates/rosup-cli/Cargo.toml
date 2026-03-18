@@ -1,5 +1,5 @@
 [package]
-name = "rosup-cli"
+name = "rosup"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

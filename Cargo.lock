@@ -1262,7 +1262,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rosup-cli"
+name = "rosup"
 version = "0.1.0"
 dependencies = [
  "clap",
