@@ -2,6 +2,8 @@ pub mod builder;
 pub mod config;
 pub mod init;
 pub mod manifest;
+pub mod new;
+pub mod overlay;
 pub mod package_xml;
 pub mod project;
 pub mod resolver;

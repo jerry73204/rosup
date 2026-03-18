@@ -136,7 +136,10 @@ mod tests {
         assert_eq!(store.src, tmp.path().join(".rosup/src"));
         assert_eq!(store.build, tmp.path().join(".rosup/build"));
         assert_eq!(store.install, tmp.path().join(".rosup/install"));
-        assert_eq!(store.worktree("rclcpp"), tmp.path().join(".rosup/src/rclcpp"));
+        assert_eq!(
+            store.worktree("rclcpp"),
+            tmp.path().join(".rosup/src/rclcpp")
+        );
     }
 
     #[test]

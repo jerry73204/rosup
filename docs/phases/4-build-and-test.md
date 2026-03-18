@@ -40,7 +40,7 @@ force a rebuild.
 - [x] Check that `AMENT_PREFIX_PATH` is set; if not, print a clear warning:
   `warning: ROS base environment not sourced — run: source /opt/ros/{distro}/setup.bash`
 - [x] Detect the ROS base prefix from `AMENT_PREFIX_PATH` or fall back to
-  `/opt/ros/{distro}` using the configured `ros-distro`
+  `/opt/ros/{distro}` using the configured `ros_distro`
 - [x] Build the `AMENT_PREFIX_PATH` string for colcon subprocesses:
   `<project>/.rosup/install : existing AMENT_PREFIX_PATH`
 - [x] Propagate `CMAKE_PREFIX_PATH` consistently with `AMENT_PREFIX_PATH`

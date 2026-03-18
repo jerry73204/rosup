@@ -96,7 +96,9 @@ pub enum ResolverError {
     Git { cmd: String, detail: String },
     #[error("unresolved dependencies: {0:?}")]
     Unresolved(Vec<String>),
-    #[error("no ROS distro configured — set ROS_DISTRO or add ros-distro to [resolve] in rosup.toml")]
+    #[error(
+        "no ROS distro configured — set ROS_DISTRO or add ros-distro to [resolve] in rosup.toml"
+    )]
     NoDistro,
 }
 

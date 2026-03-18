@@ -1,9 +1,14 @@
+use std::collections::HashMap;
+
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Result, WrapErr};
 use rosup_core::{
     builder::{self, BuildOptions, CleanOptions, TestOptions},
+    config::ResolveConfig,
     init::{self, InitMode},
     manifest::{self, DepTag},
+    new::{self, BuildType, NewOptions},
+    overlay,
     project::Project,
     resolver::{
         ResolutionMethod, Resolver,
@@ -26,6 +31,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a new ROS 2 package from a template
+    New {
+        /// Package name (also the new directory name)
+        name: String,
+        /// Build system (ament_cmake or ament_python); prompted interactively if omitted
+        #[arg(long)]
+        build_type: Option<BuildType>,
+        /// Add a <depend> entry (repeatable)
+        #[arg(long = "dep")]
+        deps: Vec<String>,
+        /// Generate a starter node with this name
+        #[arg(long)]
+        node: Option<String>,
+        /// Create the package in this directory [default: current dir]
+        #[arg(long)]
+        destination: Option<std::path::PathBuf>,
+    },
     /// Initialize a rosup.toml for an existing package or workspace
     Init {
         /// Force workspace mode
@@ -172,7 +194,21 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
+    // Best-effort: load overlays from the nearest rosup.toml and apply them to
+    // the current process env before dispatching any subcommand. This makes
+    // ROS_DISTRO, AMENT_PREFIX_PATH, etc. available to all commands — not just
+    // build/test — so search, clone, and resolve also see the right distro
+    // without requiring ros-distro in the config.
+    let overlay_env = apply_overlays_from_cwd()?;
+
     match cli.command {
+        Command::New {
+            name,
+            build_type,
+            deps,
+            node,
+            destination,
+        } => cmd_new(name, build_type, deps, node, destination),
         Command::Init { workspace, force } => cmd_init(workspace, force),
         Command::Add {
             dep_name,
@@ -204,12 +240,13 @@ fn main() -> Result<()> {
             rebuild_deps,
             release,
             debug,
+            &overlay_env,
         ),
         Command::Test {
             packages,
             retest_until_pass,
             no_resolve,
-        } => cmd_test(packages, retest_until_pass, no_resolve),
+        } => cmd_test(packages, retest_until_pass, no_resolve, &overlay_env),
         Command::Clean {
             all,
             deps,
@@ -228,6 +265,104 @@ fn main() -> Result<()> {
         Command::Run { .. } => todo!("rosup run"),
         Command::Launch { .. } => todo!("rosup launch"),
     }
+}
+
+// ── overlay ───────────────────────────────────────────────────────────────────
+
+/// Try to load the nearest `rosup.toml` and source its configured overlays,
+/// applying the resulting environment to the current process.
+///
+/// This runs once at startup so every subcommand (search, clone, resolve, …)
+/// automatically sees the correct `ROS_DISTRO`, `AMENT_PREFIX_PATH`, etc.
+/// without requiring `ros-distro` to be set explicitly in the config.
+///
+/// Fails hard if overlays are configured but a setup script is missing or
+/// fails.  Silently returns an empty map when there is no project in the CWD
+/// or the project has no overlays.
+fn apply_overlays_from_cwd() -> Result<HashMap<String, String>> {
+    let Ok(cwd) = std::env::current_dir() else {
+        return Ok(HashMap::new());
+    };
+    let Ok(project) = Project::load_from(&cwd) else {
+        return Ok(HashMap::new());
+    };
+    let env = overlay::build_env(&project.config.resolve.overlays)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    for (key, val) in &env {
+        // Safety: single-threaded at this point, no concurrent env reads.
+        unsafe { std::env::set_var(key, val) };
+    }
+
+    // Warn if ros-distro in the config disagrees with ROS_DISTRO from the overlays.
+    if let (Some(configured), Some(from_overlay)) = (
+        project.config.resolve.ros_distro.as_deref(),
+        env.get("ROS_DISTRO").map(String::as_str),
+    ) && configured != from_overlay
+    {
+        tracing::warn!(
+            "ros-distro = \"{configured}\" in rosup.toml disagrees with \
+             ROS_DISTRO=\"{from_overlay}\" from the overlay environment; \
+             dependency resolution will use \"{configured}\" but the ament \
+             environment is \"{from_overlay}\""
+        );
+    }
+
+    Ok(env)
+}
+
+// ── new ───────────────────────────────────────────────────────────────────────
+
+fn prompt_build_type() -> Result<BuildType> {
+    use std::io::Write;
+    println!("Select build type:");
+    println!("  1) ament_cmake   (C++ / CMake)");
+    println!("  2) ament_python  (pure Python)");
+    print!("Build type [1]: ");
+    std::io::stdout()
+        .flush()
+        .wrap_err("failed to flush stdout")?;
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .wrap_err("failed to read input")?;
+    match input.trim() {
+        "" | "1" | "ament_cmake" => Ok(BuildType::AmentCmake),
+        "2" | "ament_python" => Ok(BuildType::AmentPython),
+        other => color_eyre::eyre::bail!(
+            "unknown build type `{other}`; expected 1, 2, ament_cmake, or ament_python"
+        ),
+    }
+}
+
+fn cmd_new(
+    name: String,
+    build_type: Option<BuildType>,
+    deps: Vec<String>,
+    node: Option<String>,
+    destination: Option<std::path::PathBuf>,
+) -> Result<()> {
+    let build_type = match build_type {
+        Some(bt) => bt,
+        None => prompt_build_type()?,
+    };
+    let destination = match destination {
+        Some(d) => d,
+        None => std::env::current_dir().wrap_err("failed to get current directory")?,
+    };
+    let opts = NewOptions {
+        name: &name,
+        build_type,
+        deps: &deps,
+        node_name: node.as_deref(),
+        destination: &destination,
+    };
+    let pkg_dir = new::scaffold(&opts).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    println!(
+        "Created {} package `{name}` at {}",
+        build_type,
+        pkg_dir.display()
+    );
+    Ok(())
 }
 
 // ── init ──────────────────────────────────────────────────────────────────────
@@ -294,15 +429,33 @@ fn cmd_remove(dep: String, package: Option<String>) -> Result<()> {
 
 fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
-    let project = Project::load_from(&cwd)?;
-    let dep_names = collect_dep_names(&project)?;
+
+    // Try to load a project manifest; fall back to a bare package.xml.
+    let (dep_names, resolve_config, project_root) = match Project::load_from(&cwd) {
+        Ok(project) => {
+            let deps = collect_dep_names(&project)?;
+            (deps, project.config.resolve.clone(), project.root.clone())
+        }
+        Err(_) => {
+            let pkg_xml = cwd.join("package.xml");
+            if !pkg_xml.exists() {
+                color_eyre::eyre::bail!(
+                    "no rosup.toml or package.xml found — run `rosup init` or `rosup new`"
+                );
+            }
+            let manifest = rosup_core::package_xml::parse_file(&pkg_xml)
+                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+            let deps = manifest.deps.all().into_iter().map(str::to_owned).collect();
+            (deps, ResolveConfig::default(), cwd.clone())
+        }
+    };
 
     if dep_names.is_empty() {
         println!("No dependencies to resolve.");
         return Ok(());
     }
 
-    let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
+    let resolver = Resolver::new(resolve_config, &project_root)?;
     let plan = resolver
         .resolve(&dep_names, dry_run, source_only, refresh)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
@@ -346,13 +499,17 @@ fn cmd_build(
     rebuild_deps: bool,
     release: bool,
     debug: bool,
+    overlay_env: &HashMap<String, String>,
 ) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd)?;
     let project_store = ProjectStore::open(&project.root);
 
     // Phase 0: warn if base ROS environment is not sourced.
-    builder::check_ros_env(project.config.resolve.ros_distro.as_deref());
+    builder::check_ros_env(
+        project.config.resolve.ros_distro.as_deref(),
+        &overlay::ament_prefix_path(overlay_env),
+    );
 
     // Phase 1: resolve deps and clone source packages.
     if !no_resolve {
@@ -366,7 +523,7 @@ fn cmd_build(
     }
 
     // Phase 2: build the dep layer from source-pulled worktrees.
-    builder::build_dep_layer(&project.root, &project_store, rebuild_deps)
+    builder::build_dep_layer(&project.root, &project_store, rebuild_deps, overlay_env)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     // Phase 3: build the user workspace.
@@ -377,8 +534,14 @@ fn cmd_build(
         release,
         debug,
     };
-    builder::build_workspace(&project.root, &project_store, &project.config.build, &opts)
-        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    builder::build_workspace(
+        &project.root,
+        &project_store,
+        &project.config.build,
+        &opts,
+        overlay_env,
+    )
+    .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     Ok(())
 }
@@ -389,12 +552,16 @@ fn cmd_test(
     packages: Vec<String>,
     retest_until_pass: Option<usize>,
     no_resolve: bool,
+    overlay_env: &HashMap<String, String>,
 ) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd)?;
     let project_store = ProjectStore::open(&project.root);
 
-    builder::check_ros_env(project.config.resolve.ros_distro.as_deref());
+    builder::check_ros_env(
+        project.config.resolve.ros_distro.as_deref(),
+        &overlay::ament_prefix_path(overlay_env),
+    );
 
     if !no_resolve {
         let dep_names = collect_dep_names(&project)?;
@@ -410,8 +577,14 @@ fn cmd_test(
         packages: &packages,
         retest_until_pass,
     };
-    builder::test_workspace(&project.root, &project_store, &project.config.test, &opts)
-        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    builder::test_workspace(
+        &project.root,
+        &project_store,
+        &project.config.test,
+        &opts,
+        overlay_env,
+    )
+    .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     Ok(())
 }
@@ -579,13 +752,22 @@ fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
     Ok(pkg_xml)
 }
 
-/// Resolve the ROS distro: CLI flag → ROS_DISTRO env var → error.
+/// Resolve the ROS distro: CLI flag → ROS_DISTRO env → rosup.toml → error.
 fn resolve_distro(distro: Option<String>) -> Result<String> {
-    distro
-        .or_else(|| std::env::var("ROS_DISTRO").ok())
-        .ok_or_else(|| {
-            color_eyre::eyre::eyre!("no ROS distro specified — pass --distro or set ROS_DISTRO")
-        })
+    if let Some(d) = distro {
+        return Ok(d);
+    }
+    if let Ok(d) = std::env::var("ROS_DISTRO") {
+        return Ok(d);
+    }
+    // Last resort: read ros-distro from the nearest rosup.toml.
+    if let Ok(cwd) = std::env::current_dir()
+        && let Ok(project) = Project::load_from(&cwd)
+        && let Some(d) = project.config.resolve.ros_distro
+    {
+        return Ok(d);
+    }
+    color_eyre::eyre::bail!("no ROS distro specified — pass --distro or set ROS_DISTRO")
 }
 
 /// Count package.xml files under a directory (non-recursive depth-1 scan of

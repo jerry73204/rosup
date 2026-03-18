@@ -55,10 +55,13 @@ pub struct WorkspaceConfig {
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct ResolveConfig {
     /// ROS distribution (e.g. "jazzy"). Auto-detected from environment if absent.
     pub ros_distro: Option<String>,
+    /// Ament install prefixes to activate, in underlay→overlay order.
+    #[serde(default)]
+    pub overlays: Vec<std::path::PathBuf>,
     /// Dependency resolution preference.
     #[serde(default)]
     pub source_preference: SourcePreference,
@@ -88,7 +91,7 @@ pub struct DepOverride {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(deny_unknown_fields, default, rename_all = "kebab-case")]
 pub struct BuildConfig {
     #[serde(default)]
     pub cmake_args: Vec<String>,
@@ -111,7 +114,7 @@ impl Default for BuildConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct BuildOverride {
     #[serde(default)]
     pub cmake_args: Vec<String>,
@@ -119,7 +122,7 @@ pub struct BuildOverride {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct TestConfig {
     pub parallel_jobs: Option<usize>,
     pub retest_until_pass: Option<usize>,

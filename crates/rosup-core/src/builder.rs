@@ -4,6 +4,7 @@
 //! `rosup.toml` configuration. All colcon output streams directly to the
 //! terminal; exit codes are propagated.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -11,6 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::config::{BuildConfig, BuildOverride, TestConfig};
+use crate::overlay;
 use crate::resolver::store::ProjectStore;
 
 // ── errors ────────────────────────────────────────────────────────────────────
@@ -31,19 +33,12 @@ pub enum BuildError {
 
 // ── environment helpers ───────────────────────────────────────────────────────
 
-/// Returns the current `AMENT_PREFIX_PATH` if set and non-empty.
-pub fn ros_env() -> Option<String> {
-    std::env::var("AMENT_PREFIX_PATH")
-        .ok()
-        .filter(|s| !s.is_empty())
-}
-
 /// Warn if the base ROS environment does not appear to be sourced.
 ///
-/// Returns `true` if `AMENT_PREFIX_PATH` is set, `false` (with a warning)
+/// Returns `true` if `ament_prefix` is non-empty, `false` (with a warning)
 /// if it is not.
-pub fn check_ros_env(distro: Option<&str>) -> bool {
-    if ros_env().is_some() {
+pub fn check_ros_env(distro: Option<&str>, ament_prefix: &str) -> bool {
+    if !ament_prefix.is_empty() {
         return true;
     }
     let hint = distro
@@ -60,18 +55,17 @@ pub fn check_ros_env(distro: Option<&str>) -> bool {
 /// dep layer installed into `<project>/.rosup/install/`.
 ///
 /// Prepends the dep layer prefix only if `.rosup/install/` exists.
-pub fn ament_prefix_with_deps(project_store: &ProjectStore) -> String {
-    let existing = std::env::var("AMENT_PREFIX_PATH").unwrap_or_default();
+pub fn ament_prefix_with_deps(project_store: &ProjectStore, base: &str) -> String {
     let dep_install = &project_store.install;
     if dep_install.exists() {
         let prefix = dep_install.display().to_string();
-        if existing.is_empty() {
+        if base.is_empty() {
             prefix
         } else {
-            format!("{prefix}:{existing}")
+            format!("{prefix}:{base}")
         }
     } else {
-        existing
+        base.to_owned()
     }
 }
 
@@ -86,6 +80,7 @@ pub fn build_dep_layer(
     project_root: &Path,
     project_store: &ProjectStore,
     rebuild: bool,
+    overlay_env: &HashMap<String, String>,
 ) -> Result<(), BuildError> {
     let src = &project_store.src;
 
@@ -113,17 +108,20 @@ pub fn build_dep_layer(
     }
 
     info!("building dep layer");
-    run_colcon(
-        Command::new("colcon")
-            .arg("build")
-            .arg("--base-paths")
-            .arg(src)
-            .arg("--build-base")
-            .arg(&project_store.build)
-            .arg("--install-base")
-            .arg(&project_store.install)
-            .current_dir(project_root),
-    )?;
+    let ament_prefix =
+        ament_prefix_with_deps(project_store, &overlay::ament_prefix_path(overlay_env));
+    let mut cmd = Command::new("colcon");
+    cmd.arg("build")
+        .arg("--base-paths")
+        .arg(src)
+        .arg("--build-base")
+        .arg(&project_store.build)
+        .arg("--install-base")
+        .arg(&project_store.install)
+        .current_dir(project_root);
+    cmd.envs(overlay_env);
+    cmd.env("AMENT_PREFIX_PATH", ament_prefix);
+    run_colcon(&mut cmd)?;
     Ok(())
 }
 
@@ -145,6 +143,7 @@ pub fn build_workspace(
     project_store: &ProjectStore,
     build_cfg: &BuildConfig,
     opts: &BuildOptions<'_>,
+    overlay_env: &HashMap<String, String>,
 ) -> Result<(), BuildError> {
     // Determine packages that have per-package overrides.
     let override_pkgs: Vec<&str> = build_cfg
@@ -164,7 +163,7 @@ pub fn build_workspace(
     // If packages were specified and all of them have overrides, skip the base call.
     let skip_base = !opts.packages.is_empty() && base_packages.is_empty();
     if !skip_base {
-        let mut cmd = base_build_cmd(project_root, project_store, build_cfg, opts);
+        let mut cmd = base_build_cmd(project_root, project_store, build_cfg, opts, overlay_env);
         if !opts.packages.is_empty() {
             if opts.include_deps {
                 cmd.arg("--packages-up-to");
@@ -186,6 +185,7 @@ pub fn build_workspace(
             pkg,
             pkg_override,
             opts,
+            overlay_env,
         ))?;
     }
 
@@ -197,10 +197,14 @@ fn base_build_cmd(
     project_store: &ProjectStore,
     build_cfg: &BuildConfig,
     opts: &BuildOptions<'_>,
+    overlay_env: &HashMap<String, String>,
 ) -> Command {
+    let ament_prefix =
+        ament_prefix_with_deps(project_store, &overlay::ament_prefix_path(overlay_env));
     let mut cmd = Command::new("colcon");
     cmd.arg("build").current_dir(project_root);
-    cmd.env("AMENT_PREFIX_PATH", ament_prefix_with_deps(project_store));
+    cmd.envs(overlay_env);
+    cmd.env("AMENT_PREFIX_PATH", ament_prefix);
 
     if build_cfg.symlink_install {
         cmd.arg("--symlink-install");
@@ -229,13 +233,17 @@ fn override_build_cmd(
     pkg: &str,
     pkg_override: &BuildOverride,
     opts: &BuildOptions<'_>,
+    overlay_env: &HashMap<String, String>,
 ) -> Command {
+    let ament_prefix =
+        ament_prefix_with_deps(project_store, &overlay::ament_prefix_path(overlay_env));
     let mut cmd = Command::new("colcon");
     cmd.arg("build")
         .arg("--packages-select")
         .arg(pkg)
         .current_dir(project_root);
-    cmd.env("AMENT_PREFIX_PATH", ament_prefix_with_deps(project_store));
+    cmd.envs(overlay_env);
+    cmd.env("AMENT_PREFIX_PATH", ament_prefix);
 
     if build_cfg.symlink_install {
         cmd.arg("--symlink-install");
@@ -287,6 +295,7 @@ pub fn test_workspace(
     project_store: &ProjectStore,
     test_cfg: &TestConfig,
     opts: &TestOptions<'_>,
+    overlay_env: &HashMap<String, String>,
 ) -> Result<(), BuildError> {
     let max_attempts = 1 + opts.retest_until_pass.unwrap_or(0);
     let mut last_err: Option<BuildError> = None;
@@ -300,6 +309,7 @@ pub fn test_workspace(
             project_store,
             test_cfg,
             opts,
+            overlay_env,
         )) {
             Ok(()) => {
                 last_err = None;
@@ -327,10 +337,14 @@ fn build_test_cmd(
     project_store: &ProjectStore,
     test_cfg: &TestConfig,
     opts: &TestOptions<'_>,
+    overlay_env: &HashMap<String, String>,
 ) -> Command {
+    let ament_prefix =
+        ament_prefix_with_deps(project_store, &overlay::ament_prefix_path(overlay_env));
     let mut cmd = Command::new("colcon");
     cmd.arg("test").current_dir(project_root);
-    cmd.env("AMENT_PREFIX_PATH", ament_prefix_with_deps(project_store));
+    cmd.envs(overlay_env);
+    cmd.env("AMENT_PREFIX_PATH", ament_prefix);
 
     if let Some(jobs) = test_cfg.parallel_jobs {
         cmd.arg("--parallel-workers").arg(jobs.to_string());

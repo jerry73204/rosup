@@ -59,15 +59,19 @@ Controls how dependencies are resolved.
 
 ```toml
 [resolve]
-ros-distro = "jazzy"
+ros-distro = "humble"
+overlays = [
+    "/opt/ros/humble",
+    "/opt/autoware/1.5.0",
+]
 source-preference = "binary"   # "binary" | "source" | "auto"
 ```
 
-| Field               | Type   | Default    | Description                                    |
-|---------------------|--------|------------|------------------------------------------------|
-| `ros-distro`        | string | auto       | ROS distribution to resolve against. Auto-detected from `ROS_DISTRO` env var if omitted. |
-| `ros-prefix`        | string | auto       | Path to the base ROS install (e.g. `/opt/ros/humble`). Auto-detected from `AMENT_PREFIX_PATH` if omitted. Use for non-standard install locations. |
-| `source-preference` | enum   | `"auto"`   | `"auto"`: try binary first, fall back to source. `"binary"`: prefer rosdep. `"source"`: force source pull. |
+| Field               | Type     | Default  | Description                                    |
+|---------------------|----------|----------|------------------------------------------------|
+| `ros-distro`        | string   | auto     | ROS distribution to resolve against. Auto-detected from `ROS_DISTRO` env var if omitted. |
+| `overlays`          | string[] | `[]`     | Ament install prefixes to activate, in underlay→overlay order. rosup sources `setup.sh` from each and applies the resulting environment to all subprocesses. |
+| `source-preference` | enum     | `"auto"` | `"auto"`: try binary first, fall back to source. `"binary"`: prefer rosdep. `"source"`: force source pull. |
 
 ### `[resolve.overrides.<dep_name>]`
 
@@ -140,8 +144,8 @@ members = ["src/*"]
 exclude = ["src/experimental_*"]
 
 [resolve]
-ros-distro = "jazzy"
-# ros-prefix = "/opt/ros/jazzy"   # uncomment for non-standard install paths
+ros-distro = "humble"
+overlays = ["/opt/ros/humble", "/opt/autoware/1.5.0"]
 source-preference = "auto"
 
 [resolve.overrides.nav2_core]
@@ -164,7 +168,8 @@ cmake-args = ["-DCMAKE_BUILD_TYPE=Debug"]
 name = "my_robot_nav"
 
 [resolve]
-ros-distro = "jazzy"
+ros-distro = "humble"
+overlays = ["/opt/ros/humble"]
 
 [build]
 cmake-args = ["-DCMAKE_BUILD_TYPE=Release"]

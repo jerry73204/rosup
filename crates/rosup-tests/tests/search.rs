@@ -53,6 +53,25 @@ fn search_limit_flag() {
     assert_eq!(lines.len(), 2, "expected exactly 2 result lines");
 }
 
+/// `rosup search` reads `ros-distro` from `rosup.toml` when neither `--distro`
+/// nor `ROS_DISTRO` is set.
+#[test]
+fn search_reads_distro_from_rosup_toml() {
+    use rosup_tests::project::write_rosup_toml;
+    let dir = tempfile::TempDir::new().unwrap();
+    write_rosup_toml(
+        dir.path(),
+        "[package]\nname = \"my_pkg\"\n\n[resolve]\nros-distro = \"humble\"\n",
+    );
+    let te = TestEnv::new().with_cache();
+    // No --distro flag and ROS_DISTRO is unset (TestEnv removes it).
+    te.cmd(dir.path())
+        .args(["search", "rclcpp"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("rclcpp"));
+}
+
 #[test]
 fn search_missing_distro_exits_nonzero() {
     let dir = TempDir::new().unwrap();

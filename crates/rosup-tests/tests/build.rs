@@ -93,7 +93,7 @@ fn build_colcon_failure_propagates() {
 
 #[test]
 fn build_cmake_args_from_toml() {
-    let toml = "[package]\nname = \"my_pkg\"\n\n[build]\ncmake_args = [\"-DFOO=bar\"]\n";
+    let toml = "[package]\nname = \"my_pkg\"\n\n[build]\ncmake-args = [\"-DFOO=bar\"]\n";
     let proj = PackageProject::with_toml("my_pkg", toml);
     let te = env();
 
@@ -137,7 +137,7 @@ fn build_rebuild_deps_rebuilds_dep_layer() {
 
 #[test]
 fn build_override_pkg_separate_invocation() {
-    let toml = "[package]\nname = \"my_pkg\"\n\n[build.overrides.my_pkg]\ncmake_args = [\"-DOVERRIDE=1\"]\n";
+    let toml = "[package]\nname = \"my_pkg\"\n\n[build.overrides.my_pkg]\ncmake-args = [\"-DOVERRIDE=1\"]\n";
     let proj = PackageProject::with_toml("my_pkg", toml);
     let te = env();
 
