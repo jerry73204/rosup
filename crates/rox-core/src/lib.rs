@@ -3,6 +3,7 @@ pub mod init;
 pub mod manifest;
 pub mod package_xml;
 pub mod project;
+pub mod resolver;
 
 #[cfg(test)]
 pub(crate) mod test_helpers {

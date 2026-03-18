@@ -1,0 +1,61 @@
+distribution_file:
+- release_platforms:
+    ubuntu:
+    - jammy
+  repositories:
+    rclcpp:
+      release:
+        packages:
+        - rclcpp
+        - rclcpp_action
+        - rclcpp_components
+        - rclcpp_lifecycle
+        tags:
+          release: release/humble/{package}/{version}
+        url: https://github.com/ros2-gbp/rclcpp-release.git
+        version: 16.0.18-1
+      source:
+        test_pull_requests: true
+        type: git
+        url: https://github.com/ros2/rclcpp.git
+        version: humble
+      status: maintained
+    common_interfaces:
+      release:
+        packages:
+        - sensor_msgs
+        - std_msgs
+        - geometry_msgs
+        - nav_msgs
+        - visualization_msgs
+        tags:
+          release: release/humble/{package}/{version}
+        url: https://github.com/ros2-gbp/common_interfaces-release.git
+        version: 4.2.4-1
+      source:
+        test_pull_requests: true
+        type: git
+        url: https://github.com/ros2/common_interfaces.git
+        version: humble
+      status: maintained
+    solo_pkg:
+      release:
+        packages:
+        - solo_pkg
+        tags:
+          release: release/humble/{version}
+        url: https://github.com/ros2-gbp/solo_pkg-release.git
+        version: 1.0.0-1
+      source:
+        type: git
+        url: https://github.com/example/solo_pkg.git
+        version: main
+      status: maintained
+    svn_repo:
+      source:
+        type: svn
+        url: https://svn.example.com/svn_pkg
+        version: trunk
+      status: maintained
+  type: distribution
+  version: 2

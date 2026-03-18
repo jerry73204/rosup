@@ -4,6 +4,7 @@ use rox_core::{
     init::{self, InitMode},
     manifest::{self, DepTag},
     project::Project,
+    resolver::{ResolutionMethod, Resolver},
 };
 
 #[derive(Parser)]
@@ -123,9 +124,12 @@ enum Command {
         /// Show what would be installed without doing it
         #[arg(long)]
         dry_run: bool,
-        /// Force source pull for all deps
+        /// Force source pull for all deps (skip rosdep)
         #[arg(long)]
         source_only: bool,
+        /// Force re-download of the rosdistro cache
+        #[arg(long)]
+        refresh: bool,
     },
     /// Remove build artifacts
     Clean {
@@ -165,13 +169,27 @@ fn main() -> Result<()> {
             dev,
         } => cmd_add(dep_name, package, build, exec, test, dev),
         Command::Remove { dep_name, package } => cmd_remove(dep_name, package),
+        Command::Resolve {
+            dry_run,
+            source_only,
+            refresh,
+        } => cmd_resolve(dry_run, source_only, refresh),
         Command::Clone { .. } => todo!("rox clone"),
-        Command::Build { .. } => todo!("rox build"),
-        Command::Test { .. } => todo!("rox test"),
+        Command::Build { no_resolve, .. } => {
+            if !no_resolve {
+                cmd_resolve(false, false, false)?;
+            }
+            todo!("rox build")
+        }
+        Command::Test { no_resolve, .. } => {
+            if !no_resolve {
+                cmd_resolve(false, false, false)?;
+            }
+            todo!("rox test")
+        }
         Command::Search { .. } => todo!("rox search"),
         Command::Run { .. } => todo!("rox run"),
         Command::Launch { .. } => todo!("rox launch"),
-        Command::Resolve { .. } => todo!("rox resolve"),
         Command::Clean { .. } => todo!("rox clean"),
     }
 }
@@ -261,6 +279,57 @@ fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
         );
     }
     Ok(pkg_xml)
+}
+
+fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd)?;
+
+    // Collect all unique dep names from every member (or single package).
+    let mut dep_names: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let members = project.members()?;
+    for pkg in &members {
+        for dep in pkg.deps.all() {
+            if seen.insert(dep.to_owned()) {
+                dep_names.push(dep.to_owned());
+            }
+        }
+    }
+
+    if dep_names.is_empty() {
+        println!("No dependencies to resolve.");
+        return Ok(());
+    }
+
+    let resolver = Resolver::new(project.config.resolve.clone())?;
+    let plan = resolver
+        .resolve(&dep_names, dry_run, source_only, refresh)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    for dep in &plan.resolved {
+        let action = match &dep.method {
+            ResolutionMethod::Ament => "already installed".to_owned(),
+            ResolutionMethod::Binary { packages, .. } => format!("binary: {}", packages.join(", ")),
+            ResolutionMethod::Source { url, branch } => format!("source: {url} @ {branch}"),
+            ResolutionMethod::Override { url, branch, rev } => {
+                let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
+                format!("override: {url} @ {loc}")
+            }
+        };
+        let prefix = if dry_run { "would resolve" } else { "resolved" };
+        println!("{prefix} {}: {action}", dep.name);
+    }
+
+    if !plan.unresolved.is_empty() {
+        for name in &plan.unresolved {
+            eprintln!("error: could not resolve `{name}`");
+        }
+        color_eyre::eyre::bail!("unresolved dependencies");
+    }
+
+    Ok(())
 }
 
 /// Find the package.xml path for a named member within a project root by

@@ -54,7 +54,7 @@ pub struct WorkspaceConfig {
     pub exclude: Vec<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ResolveConfig {
     /// ROS distribution (e.g. "jazzy"). Auto-detected from environment if absent.
@@ -79,7 +79,7 @@ pub enum SourcePreference {
     Source,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct DepOverride {
     pub git: String,
