@@ -64,7 +64,7 @@ fn test_retest_until_pass_retries() {
     let proj = PackageProject::new("my_pkg");
     let te = env();
 
-    // All calls fail; rox test should exit non-zero but make 3 colcon test attempts.
+    // All calls fail; rosup test should exit non-zero but make 3 colcon test attempts.
     te.cmd(proj.root())
         .env("FAKE_COLCON_EXIT", "1")
         .args(["test", "--no-resolve", "--retest-until-pass", "2"])

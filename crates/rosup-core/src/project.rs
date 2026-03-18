@@ -6,7 +6,7 @@ use crate::package_xml::{self, PackageManifest};
 
 #[derive(Debug, Error)]
 pub enum ProjectError {
-    #[error("no rosup.toml found in {0} or any parent directory — run `rox init`")]
+    #[error("no rosup.toml found in {0} or any parent directory — run `rosup init`")]
     NotFound(PathBuf),
     #[error("failed to read rosup.toml at {path}: {source}")]
     Io {
@@ -28,7 +28,7 @@ pub enum ProjectError {
     Glob(#[from] glob::PatternError),
 }
 
-/// A fully loaded rox project rooted at a specific directory.
+/// A fully loaded rosup project rooted at a specific directory.
 #[derive(Debug)]
 pub struct Project {
     /// Directory containing rosup.toml.

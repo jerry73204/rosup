@@ -21,7 +21,7 @@ pub enum InitError {
     PackageXml(#[from] package_xml::PackageXmlError),
 }
 
-/// Outcome of a successful `rox init`.
+/// Outcome of a successful `rosup init`.
 #[derive(Debug)]
 pub struct InitResult {
     pub rosup_toml_path: PathBuf,
@@ -34,7 +34,7 @@ pub enum InitMode {
     Workspace,
 }
 
-/// Run `rox init` in `dir`.
+/// Run `rosup init` in `dir`.
 ///
 /// - If `force_workspace` is true, scan for member packages regardless of
 ///   whether `package.xml` is present.
@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn init_creates_gitignore_with_rox_entry() {
+    fn init_creates_gitignore_with_rosup_entry() {
         let tmp = TempDir::new().unwrap();
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
 
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn init_does_not_duplicate_rox_in_gitignore() {
+    fn init_does_not_duplicate_rosup_in_gitignore() {
         let tmp = TempDir::new().unwrap();
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join(".gitignore"), ".rosup/\n").unwrap();

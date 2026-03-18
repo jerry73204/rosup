@@ -1,4 +1,4 @@
-//! Typed builders for temporary rox project trees.
+//! Typed builders for temporary rosup project trees.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -124,7 +124,7 @@ pub fn humble_cache_fixture() -> PathBuf {
         .join("../../crates/rosup-core/tests/fixtures/rosdistro/humble-cache-sample.yaml")
 }
 
-/// Populate a fake HOME's rox cache with the sample humble YAML.
+/// Populate a fake HOME's rosup cache with the sample humble YAML.
 pub fn install_humble_cache(home: &Path) {
     let cache_dir = home.join(".rosup/cache");
     fs::create_dir_all(&cache_dir).unwrap();

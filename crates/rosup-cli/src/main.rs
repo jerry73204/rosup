@@ -225,8 +225,8 @@ fn main() -> Result<()> {
             distro,
             limit,
         } => cmd_search(query, distro, limit),
-        Command::Run { .. } => todo!("rox run"),
-        Command::Launch { .. } => todo!("rox launch"),
+        Command::Run { .. } => todo!("rosup run"),
+        Command::Launch { .. } => todo!("rosup launch"),
     }
 }
 

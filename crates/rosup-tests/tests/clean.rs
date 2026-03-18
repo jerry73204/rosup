@@ -33,12 +33,12 @@ fn clean_all_removes_install() {
 }
 
 #[test]
-fn clean_deps_removes_dot_rox_artifacts() {
+fn clean_deps_removes_dot_rosup_artifacts() {
     let proj = PackageProject::new("my_pkg").with_dep_src("my_dep");
     // Also pre-create .rosup/build and .rosup/install.
-    let rox = proj.root().join(".rosup");
-    fs::create_dir_all(rox.join("build")).unwrap();
-    fs::create_dir_all(rox.join("install")).unwrap();
+    let rosup = proj.root().join(".rosup");
+    fs::create_dir_all(rosup.join("build")).unwrap();
+    fs::create_dir_all(rosup.join("install")).unwrap();
 
     env()
         .cmd(proj.root())
@@ -46,10 +46,10 @@ fn clean_deps_removes_dot_rox_artifacts() {
         .assert()
         .success();
 
-    assert!(!rox.join("build").exists());
-    assert!(!rox.join("install").exists());
+    assert!(!rosup.join("build").exists());
+    assert!(!rosup.join("install").exists());
     assert!(
-        rox.join("src").exists(),
+        rosup.join("src").exists(),
         ".rosup/src/ must survive --deps alone"
     );
 }
@@ -57,9 +57,9 @@ fn clean_deps_removes_dot_rox_artifacts() {
 #[test]
 fn clean_deps_src_removes_worktrees() {
     let proj = PackageProject::new("my_pkg").with_dep_src("my_dep");
-    let rox = proj.root().join(".rosup");
-    fs::create_dir_all(rox.join("build")).unwrap();
-    fs::create_dir_all(rox.join("install")).unwrap();
+    let rosup = proj.root().join(".rosup");
+    fs::create_dir_all(rosup.join("build")).unwrap();
+    fs::create_dir_all(rosup.join("install")).unwrap();
 
     env()
         .cmd(proj.root())
@@ -67,9 +67,9 @@ fn clean_deps_src_removes_worktrees() {
         .assert()
         .success();
 
-    assert!(!rox.join("build").exists());
-    assert!(!rox.join("install").exists());
-    assert!(!rox.join("src").exists());
+    assert!(!rosup.join("build").exists());
+    assert!(!rosup.join("install").exists());
+    assert!(!rosup.join("src").exists());
 }
 
 #[test]

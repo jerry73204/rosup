@@ -1,4 +1,4 @@
-//! Shared test infrastructure for rox integration tests.
+//! Shared test infrastructure for rosup integration tests.
 
 pub mod project;
 pub mod shims;
@@ -71,14 +71,14 @@ impl TestEnv {
         self
     }
 
-    /// Build a `rox` Command pointing at `project_dir` with shims on PATH
+    /// Build a `rosup` Command pointing at `project_dir` with shims on PATH
     /// and HOME/SHIM_LOG_DIR configured.
     pub fn cmd(&self, project_dir: &Path) -> assert_cmd::Command {
         let shims = shim_dir();
         let original_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{original_path}", shims.display());
 
-        let mut cmd = assert_cmd::Command::cargo_bin("rosup").expect("rox binary");
+        let mut cmd = assert_cmd::Command::cargo_bin("rosup").expect("rosup binary");
         cmd.current_dir(project_dir)
             .env("PATH", &new_path)
             .env("HOME", self.home.path())

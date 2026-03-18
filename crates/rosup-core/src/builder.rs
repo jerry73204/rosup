@@ -129,7 +129,7 @@ pub fn build_dep_layer(
 
 // ── workspace build ───────────────────────────────────────────────────────────
 
-/// Options for `rox build`.
+/// Options for `rosup build`.
 pub struct BuildOptions<'a> {
     pub packages: &'a [String],
     /// `--packages-up-to` instead of `--packages-select`.
@@ -272,7 +272,7 @@ fn merged_cmake_args(base: &[String], extra: &[String], release: bool, debug: bo
 
 // ── test ──────────────────────────────────────────────────────────────────────
 
-/// Options for `rox test`.
+/// Options for `rosup test`.
 pub struct TestOptions<'a> {
     pub packages: &'a [String],
     pub retest_until_pass: Option<usize>,
@@ -343,7 +343,7 @@ fn build_test_cmd(
 
 // ── clean ─────────────────────────────────────────────────────────────────────
 
-/// Options for `rox clean`.
+/// Options for `rosup clean`.
 pub struct CleanOptions<'a> {
     /// Also remove `install/` (user workspace).
     pub all: bool,
