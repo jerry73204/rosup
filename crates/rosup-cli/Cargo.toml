@@ -3,6 +3,14 @@ name = "rosup-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "A Cargo-style package manager for ROS 2"
+keywords = ["ros", "ros2", "robotics", "package-manager", "colcon"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/tests"]
 
 [[bin]]
 name = "rosup"

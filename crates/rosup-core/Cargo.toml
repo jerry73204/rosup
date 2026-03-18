@@ -3,6 +3,13 @@ name = "rosup-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Core library for rosup — a Cargo-style package manager for ROS 2"
+keywords = ["ros", "ros2", "robotics", "package-manager", "colcon"]
+categories = ["development-tools", "development-tools::build-utils"]
+exclude = ["/tests"]
 
 [dependencies]
 eyre.workspace = true
