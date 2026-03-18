@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod config;
 pub mod init;
 pub mod manifest;

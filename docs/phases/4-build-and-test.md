@@ -37,89 +37,89 @@ force a rebuild.
 
 ### 4.1 Environment Setup
 
-- [ ] Check that `AMENT_PREFIX_PATH` is set; if not, print a clear warning:
+- [x] Check that `AMENT_PREFIX_PATH` is set; if not, print a clear warning:
   `warning: ROS base environment not sourced — run: source /opt/ros/{distro}/setup.bash`
-- [ ] Detect the ROS base prefix from `AMENT_PREFIX_PATH` or fall back to
+- [x] Detect the ROS base prefix from `AMENT_PREFIX_PATH` or fall back to
   `/opt/ros/{distro}` using the configured `ros-distro`
-- [ ] Build the `AMENT_PREFIX_PATH` string for colcon subprocesses:
+- [x] Build the `AMENT_PREFIX_PATH` string for colcon subprocesses:
   `<project>/.rox/install : existing AMENT_PREFIX_PATH`
-- [ ] Propagate `CMAKE_PREFIX_PATH` consistently with `AMENT_PREFIX_PATH`
+- [x] Propagate `CMAKE_PREFIX_PATH` consistently with `AMENT_PREFIX_PATH`
 
 ### 4.2 Dep Layer Build
 
-- [ ] After `rox resolve`, collect the list of source-pulled repos from
+- [x] After `rox resolve`, collect the list of source-pulled repos from
   `ProjectStore`
-- [ ] Run `colcon build` for the dep layer:
+- [x] Run `colcon build` for the dep layer:
   ```
   colcon build \
-    --packages-select <source-pulled-pkgs> \
     --base-paths .rox/src/* \
     --build-base .rox/build \
     --install-base .rox/install
   ```
   with env `AMENT_PREFIX_PATH = /opt/ros/{distro}`
-- [ ] Skip dep layer build if `.rox/install` already satisfies all source deps
+- [x] Skip dep layer build if `.rox/install` already satisfies all source deps
   (check ament index markers in `.rox/install/`)
-- [ ] `--rebuild-deps` flag forces a clean rebuild of the dep layer
-- [ ] Stream colcon output to terminal in real time
+- [x] `--rebuild-deps` flag forces a clean rebuild of the dep layer
+- [x] Stream colcon output to terminal in real time
 
 ### 4.3 `rox build`
 
-- [ ] Run environment check (4.1), resolution (Phase 3), dep layer build (4.2)
-- [ ] Construct `colcon build` command from `[build]` config in `rox.toml`:
+- [x] Run environment check (4.1), resolution (Phase 3), dep layer build (4.2)
+- [x] Construct `colcon build` command from `[build]` config in `rox.toml`:
   - `symlink-install` → `--symlink-install`
   - `parallel-jobs` → `--parallel-workers`
   - `cmake-args` → `--cmake-args`
-- [ ] `--release` → append `-DCMAKE_BUILD_TYPE=Release` to cmake-args
-- [ ] `--debug` → append `-DCMAKE_BUILD_TYPE=Debug` to cmake-args
-- [ ] `-p` / `--packages` → `--packages-select`
-- [ ] `--deps` → `--packages-up-to` (builds named packages and their deps)
-- [ ] `--cmake-args` CLI flag appends to rox.toml cmake-args
-- [ ] `--no-resolve` skips resolution and dep layer build
-- [ ] Stream colcon output to terminal; propagate exit code
+- [x] `--release` → append `-DCMAKE_BUILD_TYPE=Release` to cmake-args
+- [x] `--debug` → append `-DCMAKE_BUILD_TYPE=Debug` to cmake-args
+- [x] `-p` / `--packages` → `--packages-select`
+- [x] `--deps` → `--packages-up-to` (builds named packages and their deps)
+- [x] `--cmake-args` CLI flag appends to rox.toml cmake-args
+- [x] `--no-resolve` skips resolution and dep layer build
+- [x] Stream colcon output to terminal; propagate exit code
 
 ### 4.4 Per-Package Build Overrides
 
-- [ ] Read `[build.overrides.<pkg>]` from `rox.toml`
-- [ ] Merge per-package `cmake-args` with workspace-level defaults
-- [ ] Pass per-package args via `--cmake-args` with colcon's package-specific
-  argument syntax
+- [x] Read `[build.overrides.<pkg>]` from `rox.toml`
+- [x] Merge per-package `cmake-args` with workspace-level defaults
+- [x] Packages with overrides get a separate `colcon build --packages-select`
+  invocation with their specific cmake-args
 
 ### 4.5 `rox test`
 
-- [ ] Run environment check and resolution (unless `--no-resolve`)
-- [ ] Construct `colcon test` command from `[test]` config:
+- [x] Run environment check and resolution (unless `--no-resolve`)
+- [x] Construct `colcon test` command from `[test]` config:
   - `parallel-jobs` → `--parallel-workers`
-- [ ] `-p` / `--packages` → `--packages-select`
-- [ ] `--retest-until-pass N`: re-run failed tests up to N times
-- [ ] Run `colcon test-result --verbose` to print summary after tests
-- [ ] Stream colcon output to terminal; propagate exit code
+- [x] `-p` / `--packages` → `--packages-select`
+- [x] `--retest-until-pass N`: re-run failed tests up to N additional times
+- [x] Run `colcon test-result --verbose` to print summary after tests
+- [x] Stream colcon output to terminal; propagate exit code
 
 ### 4.6 `rox clean`
 
-- [ ] Default: remove `build/` and `log/` (user workspace artifacts)
-- [ ] `--all`: also remove `install/` (user workspace install)
-- [ ] `--deps`: remove `.rox/build/` and `.rox/install/` (dep layer artifacts,
+- [x] Default: remove `build/` and `log/` (user workspace artifacts)
+- [x] `--all`: also remove `install/` (user workspace install)
+- [x] `--deps`: remove `.rox/build/` and `.rox/install/` (dep layer artifacts,
   keeps source worktrees intact)
-- [ ] `--deps --src`: also remove `.rox/src/` worktrees (bare clones in
+- [x] `--deps --src`: also remove `.rox/src/` worktrees (bare clones in
   `~/.rox/src/` are unaffected)
-- [ ] `-p <pkg>`: remove only the specified package's artifacts from `build/`
+- [x] `-p <pkg>`: remove only the specified package's artifacts from `build/`
+  and `install/`
 
 ## Acceptance Criteria
 
-- [ ] `rox build` warns and exits early if `AMENT_PREFIX_PATH` is unset
-- [ ] `rox build` resolves deps, builds dep layer, then builds user workspace
-- [ ] `rox build` is a no-op on the dep layer when source deps are already built
-- [ ] `rox build --rebuild-deps` rebuilds the dep layer from scratch
-- [ ] `rox build --release` passes `-DCMAKE_BUILD_TYPE=Release` to colcon
-- [ ] `rox build -p my_pkg` builds only `my_pkg`
-- [ ] `rox build -p my_pkg --deps` builds `my_pkg` and its dependencies
-- [ ] `cmake-args` from `rox.toml` are passed through to colcon
-- [ ] Per-package `[build.overrides]` are applied correctly
-- [ ] `rox test` runs tests and prints a result summary
-- [ ] `rox test -p my_pkg` tests only `my_pkg`
-- [ ] `rox clean` removes `build/` and `log/`
-- [ ] `rox clean --all` also removes `install/`
-- [ ] `rox clean --deps` removes `.rox/build/` and `.rox/install/` only
-- [ ] Build output streams to terminal (not buffered until completion)
-- [ ] Non-zero colcon exit codes propagate as rox exit codes
+- [x] `rox build` warns (but does not exit) if `AMENT_PREFIX_PATH` is unset
+- [x] `rox build` resolves deps, builds dep layer, then builds user workspace
+- [x] `rox build` is a no-op on the dep layer when source deps are already built
+- [x] `rox build --rebuild-deps` rebuilds the dep layer from scratch
+- [x] `rox build --release` passes `-DCMAKE_BUILD_TYPE=Release` to colcon
+- [x] `rox build -p my_pkg` builds only `my_pkg`
+- [x] `rox build -p my_pkg --deps` builds `my_pkg` and its dependencies
+- [x] `cmake-args` from `rox.toml` are passed through to colcon
+- [x] Per-package `[build.overrides]` are applied correctly
+- [x] `rox test` runs tests and prints a result summary
+- [x] `rox test -p my_pkg` tests only `my_pkg`
+- [x] `rox clean` removes `build/` and `log/`
+- [x] `rox clean --all` also removes `install/`
+- [x] `rox clean --deps` removes `.rox/build/` and `.rox/install/` only
+- [x] Build output streams to terminal (not buffered until completion)
+- [x] Non-zero colcon exit codes propagate as rox exit codes

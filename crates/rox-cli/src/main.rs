@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Result, WrapErr};
 use rox_core::{
+    builder::{self, BuildOptions, CleanOptions, TestOptions},
     init::{self, InitMode},
     manifest::{self, DepTag},
     project::Project,
-    resolver::{ResolutionMethod, Resolver},
+    resolver::{ResolutionMethod, Resolver, store::ProjectStore},
 };
 
 #[derive(Parser)]
@@ -47,9 +48,12 @@ enum Command {
         /// Additional CMake arguments
         #[arg(long, num_args = 1..)]
         cmake_args: Vec<String>,
-        /// Skip dependency resolution
+        /// Skip dependency resolution and dep layer build
         #[arg(long)]
         no_resolve: bool,
+        /// Force rebuild of the dep layer from source
+        #[arg(long)]
+        rebuild_deps: bool,
         /// Shorthand for -DCMAKE_BUILD_TYPE=Release
         #[arg(long)]
         release: bool,
@@ -133,9 +137,15 @@ enum Command {
     },
     /// Remove build artifacts
     Clean {
-        /// Also remove install/
+        /// Also remove install/ (user workspace)
         #[arg(long)]
         all: bool,
+        /// Remove .rox/build/ and .rox/install/ (dep layer artifacts)
+        #[arg(long)]
+        deps: bool,
+        /// Also remove .rox/src/ worktrees (implies --deps)
+        #[arg(long, requires = "deps")]
+        src: bool,
         /// Clean only the specified packages
         #[arg(short, long, num_args = 1..)]
         packages: Vec<String>,
@@ -174,25 +184,42 @@ fn main() -> Result<()> {
             source_only,
             refresh,
         } => cmd_resolve(dry_run, source_only, refresh),
+        Command::Build {
+            packages,
+            deps,
+            cmake_args,
+            no_resolve,
+            rebuild_deps,
+            release,
+            debug,
+        } => cmd_build(
+            packages,
+            deps,
+            cmake_args,
+            no_resolve,
+            rebuild_deps,
+            release,
+            debug,
+        ),
+        Command::Test {
+            packages,
+            retest_until_pass,
+            no_resolve,
+        } => cmd_test(packages, retest_until_pass, no_resolve),
+        Command::Clean {
+            all,
+            deps,
+            src,
+            packages,
+        } => cmd_clean(all, deps, src, packages),
         Command::Clone { .. } => todo!("rox clone"),
-        Command::Build { no_resolve, .. } => {
-            if !no_resolve {
-                cmd_resolve(false, false, false)?;
-            }
-            todo!("rox build")
-        }
-        Command::Test { no_resolve, .. } => {
-            if !no_resolve {
-                cmd_resolve(false, false, false)?;
-            }
-            todo!("rox test")
-        }
         Command::Search { .. } => todo!("rox search"),
         Command::Run { .. } => todo!("rox run"),
         Command::Launch { .. } => todo!("rox launch"),
-        Command::Clean { .. } => todo!("rox clean"),
     }
 }
+
+// ── init ──────────────────────────────────────────────────────────────────────
 
 fn cmd_init(force_workspace: bool, force: bool) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
@@ -208,6 +235,8 @@ fn cmd_init(force_workspace: bool, force: bool) -> Result<()> {
     );
     Ok(())
 }
+
+// ── add / remove ──────────────────────────────────────────────────────────────
 
 fn cmd_add(
     dep: String,
@@ -250,53 +279,12 @@ fn cmd_remove(dep: String, package: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Resolve which package.xml to operate on.
-///
-/// In workspace mode with `-p pkg_name`, find the member package by name.
-/// Otherwise, look for package.xml in the current directory.
-fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
-    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
-
-    if let Some(pkg_name) = package {
-        // Walk up to find project root, then locate member.
-        let project = Project::load_from(&cwd)?;
-        let members = project.members()?;
-        let member = members
-            .into_iter()
-            .find(|m| m.name == pkg_name)
-            .ok_or_else(|| eyre::eyre!("package `{pkg_name}` not found in workspace"))?;
-        // Re-derive path from glob results — find the dir containing package.xml.
-        let pkg_xml = find_member_xml(&project.root, &member.name)?;
-        return Ok(pkg_xml);
-    }
-
-    // No -p flag: use package.xml in cwd.
-    let pkg_xml = cwd.join("package.xml");
-    if !pkg_xml.exists() {
-        eyre::bail!(
-            "no package.xml found in {}. Use -p <name> to specify a package.",
-            cwd.display()
-        );
-    }
-    Ok(pkg_xml)
-}
+// ── resolve ───────────────────────────────────────────────────────────────────
 
 fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd)?;
-
-    // Collect all unique dep names from every member (or single package).
-    let mut dep_names: Vec<String> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    let members = project.members()?;
-    for pkg in &members {
-        for dep in pkg.deps.all() {
-            if seen.insert(dep.to_owned()) {
-                dep_names.push(dep.to_owned());
-            }
-        }
-    }
+    let dep_names = collect_dep_names(&project)?;
 
     if dep_names.is_empty() {
         println!("No dependencies to resolve.");
@@ -311,7 +299,9 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     for dep in &plan.resolved {
         let action = match &dep.method {
             ResolutionMethod::Ament => "already installed".to_owned(),
-            ResolutionMethod::Binary { packages, .. } => format!("binary: {}", packages.join(", ")),
+            ResolutionMethod::Binary { packages, .. } => {
+                format!("binary: {}", packages.join(", "))
+            }
             ResolutionMethod::Source { repo, url, branch } => {
                 format!("source: {repo} ({url} @ {branch})")
             }
@@ -334,8 +324,151 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     Ok(())
 }
 
-/// Find the package.xml path for a named member within a project root by
-/// scanning the workspace member directories.
+// ── build ─────────────────────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_build(
+    packages: Vec<String>,
+    include_deps: bool,
+    cmake_args: Vec<String>,
+    no_resolve: bool,
+    rebuild_deps: bool,
+    release: bool,
+    debug: bool,
+) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd)?;
+    let project_store = ProjectStore::open(&project.root);
+
+    // Phase 0: warn if base ROS environment is not sourced.
+    builder::check_ros_env(project.config.resolve.ros_distro.as_deref());
+
+    // Phase 1: resolve deps and clone source packages.
+    if !no_resolve {
+        let dep_names = collect_dep_names(&project)?;
+        if !dep_names.is_empty() {
+            let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
+            resolver
+                .resolve(&dep_names, false, false, false)
+                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+        }
+    }
+
+    // Phase 2: build the dep layer from source-pulled worktrees.
+    builder::build_dep_layer(&project.root, &project_store, rebuild_deps)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    // Phase 3: build the user workspace.
+    let opts = BuildOptions {
+        packages: &packages,
+        include_deps,
+        cmake_args: &cmake_args,
+        release,
+        debug,
+    };
+    builder::build_workspace(&project.root, &project_store, &project.config.build, &opts)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    Ok(())
+}
+
+// ── test ──────────────────────────────────────────────────────────────────────
+
+fn cmd_test(
+    packages: Vec<String>,
+    retest_until_pass: Option<usize>,
+    no_resolve: bool,
+) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd)?;
+    let project_store = ProjectStore::open(&project.root);
+
+    builder::check_ros_env(project.config.resolve.ros_distro.as_deref());
+
+    if !no_resolve {
+        let dep_names = collect_dep_names(&project)?;
+        if !dep_names.is_empty() {
+            let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
+            resolver
+                .resolve(&dep_names, false, false, false)
+                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+        }
+    }
+
+    let opts = TestOptions {
+        packages: &packages,
+        retest_until_pass,
+    };
+    builder::test_workspace(&project.root, &project_store, &project.config.test, &opts)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    Ok(())
+}
+
+// ── clean ─────────────────────────────────────────────────────────────────────
+
+fn cmd_clean(all: bool, deps: bool, src: bool, packages: Vec<String>) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd)?;
+    let project_store = ProjectStore::open(&project.root);
+
+    let opts = CleanOptions {
+        all,
+        deps,
+        src,
+        packages: &packages,
+    };
+    builder::clean(&project.root, &project_store, &opts)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    Ok(())
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+/// Collect all unique dependency names across all workspace members.
+fn collect_dep_names(project: &Project) -> Result<Vec<String>> {
+    let mut dep_names: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for pkg in &project.members()? {
+        for dep in pkg.deps.all() {
+            if seen.insert(dep.to_owned()) {
+                dep_names.push(dep.to_owned());
+            }
+        }
+    }
+    Ok(dep_names)
+}
+
+/// Resolve which package.xml to operate on.
+///
+/// In workspace mode with `-p pkg_name`, find the member package by name.
+/// Otherwise, look for package.xml in the current directory.
+fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+
+    if let Some(pkg_name) = package {
+        let project = Project::load_from(&cwd)?;
+        let members = project.members()?;
+        let member = members
+            .into_iter()
+            .find(|m| m.name == pkg_name)
+            .ok_or_else(|| eyre::eyre!("package `{pkg_name}` not found in workspace"))?;
+        let pkg_xml = find_member_xml(&project.root, &member.name)?;
+        return Ok(pkg_xml);
+    }
+
+    let pkg_xml = cwd.join("package.xml");
+    if !pkg_xml.exists() {
+        eyre::bail!(
+            "no package.xml found in {}. Use -p <name> to specify a package.",
+            cwd.display()
+        );
+    }
+    Ok(pkg_xml)
+}
+
+/// Find the package.xml path for a named member within a project root.
 fn find_member_xml(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
     let project = Project::load_at(root)?;
     if let Some(ws) = &project.config.workspace {
