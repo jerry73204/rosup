@@ -32,6 +32,10 @@ test:
 ci: check
     cargo nextest run --profile ci
 
+# Install the rox binary to ~/.cargo/bin
+install:
+    cargo install --path crates/rox-cli
+
 # Install required dev tools
 setup:
     rustup toolchain install nightly
