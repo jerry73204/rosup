@@ -54,12 +54,40 @@ pub fn resolve(dep: &str, distro: &str) -> Result<RosdepResolution, RosdepError>
 
 /// Install rosdep keys via the system package manager.
 ///
-/// Runs: `rosdep install --default-yes --rosdistro <distro> --from-keys <keys...>`
+/// Writes a minimal `package.xml` to a temp directory and runs:
+/// `rosdep install --from-paths <tmpdir> --ignore-src --rosdistro <distro> -y`
+///
+/// Using `--from-paths` instead of `--from-keys` for compatibility with older
+/// rosdep versions that do not support the `--from-keys` flag.
 pub fn install(keys: &[&str], distro: &str, dry_run: bool) -> Result<(), RosdepError> {
+    // Write a minimal package.xml so rosdep can discover the keys via --from-paths.
+    let tmp = tempfile::tempdir().map_err(RosdepError::Io)?;
+    let dep_lines: String = keys
+        .iter()
+        .map(|k| format!("  <exec_depend>{k}</exec_depend>\n"))
+        .collect();
+    let pkg_xml = format!(
+        "<?xml version=\"1.0\"?>\n\
+         <package format=\"3\">\n\
+           <name>_rosup_install</name>\n\
+           <version>0.0.0</version>\n\
+           <description>rosup install helper</description>\n\
+           <maintainer email=\"x@x.x\">x</maintainer>\n\
+           <license>N/A</license>\n\
+         {dep_lines}</package>\n"
+    );
+    std::fs::write(tmp.path().join("package.xml"), pkg_xml).map_err(RosdepError::Io)?;
+
     let mut cmd = rosdep_cmd();
-    cmd.args(["install", "--rosdistro", distro, "--from-keys"])
-        .args(keys)
-        .env("ROS_PYTHON_VERSION", "3");
+    cmd.args([
+        "install",
+        "--from-paths",
+        tmp.path().to_str().unwrap_or("."),
+        "--ignore-src",
+        "--rosdistro",
+        distro,
+    ])
+    .env("ROS_PYTHON_VERSION", "3");
 
     if dry_run {
         cmd.arg("--simulate");
