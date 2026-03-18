@@ -153,6 +153,7 @@ fn new_ros_distro_written_to_toml() {
     let toml = std::fs::read_to_string(dir.path().join("my_pkg/rosup.toml")).unwrap();
     assert!(toml.contains("[resolve]"));
     assert!(toml.contains("ros-distro = \"humble\""));
+    assert!(toml.contains("/opt/ros/humble"));
 }
 
 #[test]

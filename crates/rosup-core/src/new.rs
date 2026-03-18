@@ -90,10 +90,11 @@ pub fn scaffold(opts: &NewOptions<'_>) -> Result<PathBuf, NewError> {
     }
 
     // Write rosup.toml directly — we know it's a single package.
+    let overlay_path = format!("/opt/ros/{}", opts.ros_distro);
     fs_write(
         &pkg_dir.join("rosup.toml"),
         format!(
-            "[package]\nname = \"{}\"\n\n[resolve]\nros-distro = \"{}\"\n",
+            "[package]\nname = \"{}\"\n\n[resolve]\nros-distro = \"{}\"\noverlays = [\"{overlay_path}\"]\n",
             opts.name, opts.ros_distro
         ),
     )?;
@@ -505,6 +506,7 @@ mod tests {
         assert!(toml.contains("name = \"my_pkg\""));
         assert!(toml.contains("[resolve]"));
         assert!(toml.contains("ros-distro = \"humble\""));
+        assert!(toml.contains("/opt/ros/humble"));
     }
 
     #[test]
