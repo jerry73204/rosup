@@ -194,6 +194,12 @@ enum Command {
     Completions {
         /// Shell to generate completions for (bash, zsh, fish, elvish, powershell)
         shell: clap_complete::Shell,
+        /// Write the completion script to the shell's conventional directory
+        #[arg(long, conflicts_with = "print")]
+        install: bool,
+        /// Print raw completion script to stdout (for custom piping)
+        #[arg(long, conflicts_with = "install")]
+        print: bool,
     },
     /// Remove build artifacts
     Clean {
@@ -310,13 +316,123 @@ fn main() -> Result<()> {
             distro,
             limit,
         } => cmd_search(query, distro, limit),
-        Command::Completions { shell } => {
-            clap_complete::generate(shell, &mut Cli::command(), "rosup", &mut std::io::stdout());
-            Ok(())
-        }
+        Command::Completions {
+            shell,
+            install,
+            print,
+        } => cmd_completions(shell, install, print),
         Command::Run { .. } => todo!("rosup run"),
         Command::Launch { .. } => todo!("rosup launch"),
     }
+}
+
+// ── completions ───────────────────────────────────────────────────────────────
+
+fn cmd_completions(shell: clap_complete::Shell, install: bool, print: bool) -> Result<()> {
+    use clap_complete::Shell::*;
+
+    if print {
+        clap_complete::generate(shell, &mut Cli::command(), "rosup", &mut std::io::stdout());
+        return Ok(());
+    }
+
+    if install {
+        let mut buf = Vec::new();
+        clap_complete::generate(shell, &mut Cli::command(), "rosup", &mut buf);
+
+        let home = std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .wrap_err("$HOME is not set")?;
+
+        let dest = match shell {
+            Bash => home.join(".local/share/bash-completion/completions/rosup"),
+            Zsh => home.join(".zfunc/_rosup"),
+            Fish => home.join(".config/fish/completions/rosup.fish"),
+            _ => {
+                color_eyre::eyre::bail!(
+                    "--install is not supported for {shell}; use --print and redirect manually"
+                );
+            }
+        };
+
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .wrap_err_with(|| format!("failed to create {}", parent.display()))?;
+        }
+        std::fs::write(&dest, &buf)
+            .wrap_err_with(|| format!("failed to write {}", dest.display()))?;
+
+        println!("Wrote completions to {}", dest.display());
+
+        // Print any remaining activation steps.
+        match shell {
+            Zsh => {
+                println!();
+                println!("Make sure your ~/.zshrc contains (before compinit):");
+                println!("  fpath=(~/.zfunc $fpath)");
+                println!("  autoload -Uz compinit && compinit");
+            }
+            Bash => {
+                println!();
+                println!("Completions will be loaded automatically in new shells.");
+                println!("To activate now:  source {}", dest.display());
+            }
+            _ => {}
+        }
+
+        return Ok(());
+    }
+
+    // Default: print installation instructions.
+    let instructions = match shell {
+        Bash => {
+            "\
+Install completions automatically:
+  rosup completions bash --install
+
+Or manually:
+  rosup completions bash --print > ~/.local/share/bash-completion/completions/rosup
+
+To source directly in ~/.bashrc:
+  source <(rosup completions bash --print)"
+        }
+        Zsh => {
+            "\
+Install completions automatically:
+  rosup completions zsh --install
+
+Or manually:
+  rosup completions zsh --print > ~/.zfunc/_rosup
+
+Make sure your ~/.zshrc contains (before compinit):
+  fpath=(~/.zfunc $fpath)
+  autoload -Uz compinit && compinit"
+        }
+        Fish => {
+            "\
+Install completions automatically:
+  rosup completions fish --install
+
+Or manually:
+  rosup completions fish --print > ~/.config/fish/completions/rosup.fish"
+        }
+        Elvish => {
+            "\
+Generate and save completions:
+  rosup completions elvish --print > ~/.config/elvish/lib/completions/rosup.elv
+
+Then add to ~/.config/elvish/rc.elv:
+  use completions/rosup"
+        }
+        PowerShell => {
+            "\
+Add to your PowerShell profile ($PROFILE):
+  rosup completions powershell --print >> $PROFILE"
+        }
+        _ => "Unknown shell; use --print to output raw completions.",
+    };
+    println!("{instructions}");
+    Ok(())
 }
 
 // ── overlay ───────────────────────────────────────────────────────────────────
