@@ -84,6 +84,9 @@ enum Command {
         package_name: String,
         #[arg(long)]
         distro: Option<String>,
+        /// Clone into this directory [default: current directory]
+        #[arg(long)]
+        destination: Option<std::path::PathBuf>,
     },
     /// Build packages
     Build {
@@ -281,7 +284,8 @@ fn main() -> Result<()> {
         Command::Clone {
             package_name,
             distro,
-        } => cmd_clone(package_name, distro),
+            destination,
+        } => cmd_clone(package_name, distro, destination),
         Command::Search {
             query,
             distro,
@@ -809,7 +813,11 @@ fn cmd_search(query: String, distro: Option<String>, limit: usize) -> Result<()>
 
 // ── clone ─────────────────────────────────────────────────────────────────────
 
-fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
+fn cmd_clone(
+    package_name: String,
+    distro: Option<String>,
+    destination: Option<std::path::PathBuf>,
+) -> Result<()> {
     let distro = resolve_distro(distro)?;
     let global = GlobalStore::open().map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
     global
@@ -824,8 +832,11 @@ fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
         )
     })?;
 
-    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
-    let dest = cwd.join(&src.repo);
+    let parent = match &destination {
+        Some(d) => d.clone(),
+        None => std::env::current_dir().wrap_err("failed to get current directory")?,
+    };
+    let dest = parent.join(&src.repo);
 
     println!("Cloning {} @ {} → {}", src.url, src.branch, dest.display());
 

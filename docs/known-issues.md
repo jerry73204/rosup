@@ -58,9 +58,9 @@ detection — see `docs/features/manifest-discovery.md`.
 
 ---
 
-## KI-005 — `rosup clone` always clones into `$CWD`
+## ~~KI-005 — `rosup clone` always clones into `$CWD`~~ CLOSED
 
-Superseded by KI-011. See Phase 9.6 for the `--destination` flag plan.
+**Fixed in Phase 9.6.** Added `--destination <dir>` flag to `rosup clone`.
 
 ---
 
@@ -111,19 +111,10 @@ prompt in `cmd_init`.
 
 ---
 
-## KI-011 — `rosup clone` clones into `$CWD`, no `--destination` flag
+## ~~KI-011 — `rosup clone` clones into `$CWD`, no `--destination` flag~~ CLOSED
 
-**Symptom:** `rosup clone` always clones into the current working directory.
-There is no way to specify a different destination. Users who want to clone
-into `src/` (a common Colcon convention, but not a strict rule) must `cd`
-there first.
-
-**Impact:** Low. Users must `cd` to the desired parent directory first.
-
-**Workaround:** `cd src/ && rosup clone <pkg> --distro <d>`.
-
-**Planned fix:** Add `--destination <dir>` flag to `rosup clone`
-(see Phase 9.6). Supersedes KI-005.
+**Fixed in Phase 9.6.** Added `--destination <dir>` flag to `rosup clone`.
+Example: `rosup clone nav2_core --distro humble --destination src/`.
 
 ---
 

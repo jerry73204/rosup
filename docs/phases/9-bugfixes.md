@@ -126,27 +126,25 @@ prefix lacked `setup.sh`, even `search`, `sync`, and `add` failed.
 
 ---
 
-## 9.6 Add `--destination` flag to `rosup clone` (KI-005)
+## 9.6 Add `--destination` flag to `rosup clone` (KI-005) — DONE
 
 **File:** `crates/rosup-cli/src/main.rs`
 
-`rosup clone` always clones into `$CWD`. There is no way to specify a
-different target directory. Colcon does not mandate `src/` — packages can
-live anywhere — so rosup should not assume a convention. Instead, just give
-users explicit control.
+`rosup clone` always cloned into `$CWD`. There was no way to specify a
+different target directory.
 
 ### Implementation
 
-- [ ] Add `--destination <dir>` flag to the `Clone` command.
-- [ ] When set, clone into `<dir>/<repo_name>` instead of
+- [x] Added `--destination <dir>` flag to the `Clone` command.
+- [x] When set, clones into `<dir>/<repo_name>` instead of
   `$CWD/<repo_name>`.
-- [ ] When not set, behavior is unchanged (`$CWD`).
+- [x] When not set, behavior is unchanged (`$CWD`).
 
 ### Acceptance criteria
 
-- [ ] `rosup clone nav2_core --distro humble --destination src/` clones
+- [x] `rosup clone nav2_core --distro humble --destination src/` clones
   into `src/nav2_core/`.
-- [ ] `rosup clone nav2_core --distro humble` still clones into
+- [x] `rosup clone nav2_core --distro humble` still clones into
   `$CWD/nav2_core/` (no behavior change).
-- [ ] Update `docs/reference/cli.md` to document `--destination`.
-- [ ] Update `docs/known-issues.md`: close KI-005.
+- [x] `docs/reference/cli.md` updated.
+- [x] KI-005 closed.

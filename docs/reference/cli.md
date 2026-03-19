@@ -105,11 +105,16 @@ rosup sync --lock
 Clone a package from the ROS index and set it up for development.
 
 ```
-rosup clone <package_name> [--distro <distro>]
+rosup clone <package_name> [--distro <distro>] [--destination <dir>]
 ```
 
+| Option          | Description                                          |
+|-----------------|------------------------------------------------------|
+| `--distro`      | ROS distribution to look up (falls back to rosup.toml, then `ROS_DISTRO` env) |
+| `--destination` | Clone into this directory [default: current directory] |
+
 1. Looks up `<package_name>` in the rosdistro distribution cache.
-2. Clones the source repository to the current directory.
+2. Clones the source repository into the destination directory.
 3. Generates `rosup.toml` via `rosup init`.
 
 **Examples:**
@@ -117,6 +122,7 @@ rosup clone <package_name> [--distro <distro>]
 ```bash
 rosup clone nav2_core
 rosup clone nav2_core --distro jazzy
+rosup clone nav2_core --distro humble --destination src/
 ```
 
 ---
