@@ -967,22 +967,37 @@ fn count_package_xmls(dir: &std::path::Path) -> usize {
 }
 
 /// Find the package.xml path for a named member within a project root.
+///
+/// Uses `project.members()` which handles both auto-discovery (`members`
+/// absent) and glob mode (`members` present). The discovered members are
+/// then matched by name to find the corresponding `package.xml` path.
 fn find_member_xml(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
     let project = Project::load_at(root)?;
-    if let Some(ws) = &project.config.workspace {
-        for pattern in ws.members.iter().flatten() {
-            let abs = root.join(pattern).display().to_string();
-            for entry in glob::glob(&abs).wrap_err("invalid glob pattern")? {
-                let entry: std::path::PathBuf = entry.wrap_err("glob error")?;
-                let pkg_xml = entry.join("package.xml");
-                if pkg_xml.exists() {
-                    let manifest = rosup_core::package_xml::parse_file(&pkg_xml)?;
-                    if manifest.name == name {
-                        return Ok(pkg_xml);
-                    }
-                }
+    if project.config.workspace.is_none() {
+        eyre::bail!("not a workspace project");
+    }
+
+    // project.members() handles both auto-discovery and glob mode.
+    // It returns parsed manifests, but we need the file path. Re-scan to
+    // locate the directory by package name.
+    let ws = project.config.workspace.as_ref().unwrap();
+    let excludes: Vec<glob::Pattern> = ws
+        .exclude
+        .iter()
+        .filter_map(|p| glob::Pattern::new(p).ok())
+        .collect();
+
+    let discovered =
+        rosup_core::init::colcon_scan(root, &excludes).map_err(|e| eyre::eyre!("{e}"))?;
+    for rel in &discovered {
+        let pkg_xml = root.join(rel).join("package.xml");
+        if pkg_xml.exists() {
+            let manifest = rosup_core::package_xml::parse_file(&pkg_xml)?;
+            if manifest.name == name {
+                return Ok(pkg_xml);
             }
         }
     }
+
     eyre::bail!("could not find package.xml for `{name}`")
 }

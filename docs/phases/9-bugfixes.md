@@ -5,7 +5,7 @@ packages), AutoSDV (113 packages), and cuda_ndt_matcher (5 packages).
 
 ---
 
-## 9.1 Fix `find_member_xml` in auto-discovery workspaces (KI-007)
+## 9.1 Fix `find_member_xml` in auto-discovery workspaces (KI-007) — DONE
 
 **Files:** `crates/rosup-cli/src/main.rs`
 
@@ -15,18 +15,18 @@ and `rosup remove -p <pkg>` in auto-discovery workspaces.
 
 ### Implementation
 
-- [ ] When `ws.members` is `None`, call `project.members()` (which already
-  handles auto-discovery via `colcon_scan`) to get the member list.
-- [ ] Search the discovered members by package name.
-- [ ] Return the `package.xml` path for the matching member.
+- [x] When `ws.members` is `None`, call `colcon_scan` (which already
+  handles auto-discovery) to get the member list.
+- [x] Search the discovered members by package name.
+- [x] Return the `package.xml` path for the matching member.
 
 ### Acceptance criteria
 
-- [ ] `rosup add rclcpp -p pkg_a` succeeds in an auto-discovery workspace.
-- [ ] `rosup remove rclcpp -p pkg_a` succeeds in an auto-discovery workspace.
-- [ ] `rosup add rclcpp -p nonexistent` still fails with a clear error.
-- [ ] Existing glob-mode (`members = ["src/*"]`) behavior unchanged.
-- [ ] Integration test: init auto-discovery workspace, `add -p`, verify
+- [x] `rosup add rclcpp -p pkg_a` succeeds in an auto-discovery workspace.
+- [x] `rosup remove rclcpp -p pkg_a` succeeds in an auto-discovery workspace.
+- [x] `rosup add rclcpp -p nonexistent` still fails with a clear error.
+- [x] Existing glob-mode (`members = ["src/*"]`) behavior unchanged.
+- [x] Integration test: init auto-discovery workspace, `add -p`, verify
   `package.xml` is modified.
 
 ---

@@ -1,4 +1,4 @@
-use rosup_tests::{PackageProject, TestEnv};
+use rosup_tests::{PackageProject, TestEnv, WorkspaceProject};
 use std::fs;
 
 fn env() -> TestEnv {
@@ -91,4 +91,50 @@ fn remove_nonexistent_warns() {
         .assert()
         .success()
         .stderr(predicates::str::contains("warning"));
+}
+
+#[test]
+fn add_with_package_flag_in_auto_discovery_workspace() {
+    let ws = WorkspaceProject::auto_discovery(&["pkg_a", "pkg_b"]);
+    env()
+        .cmd(ws.root())
+        .args(["add", "sensor_msgs", "-p", "pkg_a"])
+        .assert()
+        .success();
+
+    let xml = fs::read_to_string(ws.root().join("src/pkg_a/package.xml")).unwrap();
+    assert!(xml.contains("<depend>sensor_msgs</depend>"));
+    // pkg_b should be unchanged.
+    let xml_b = fs::read_to_string(ws.root().join("src/pkg_b/package.xml")).unwrap();
+    assert!(!xml_b.contains("sensor_msgs"));
+}
+
+#[test]
+fn remove_with_package_flag_in_auto_discovery_workspace() {
+    let ws = WorkspaceProject::auto_discovery(&["pkg_a"]);
+    // First add a dep, then remove it.
+    env()
+        .cmd(ws.root())
+        .args(["add", "rclcpp", "-p", "pkg_a"])
+        .assert()
+        .success();
+    env()
+        .cmd(ws.root())
+        .args(["remove", "rclcpp", "-p", "pkg_a"])
+        .assert()
+        .success();
+
+    let xml = fs::read_to_string(ws.root().join("src/pkg_a/package.xml")).unwrap();
+    assert!(!xml.contains("rclcpp"));
+}
+
+#[test]
+fn add_with_package_flag_nonexistent_package_fails() {
+    let ws = WorkspaceProject::auto_discovery(&["pkg_a"]);
+    env()
+        .cmd(ws.root())
+        .args(["add", "rclcpp", "-p", "nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("nonexistent"));
 }

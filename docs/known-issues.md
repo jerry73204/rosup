@@ -79,24 +79,11 @@ manually, then use `ros2 run` / `ros2 launch`.
 
 ---
 
-## KI-007 — `rosup add -p` / `rosup remove -p` broken in auto-discovery workspaces
+## ~~KI-007 — `rosup add -p` / `rosup remove -p` broken in auto-discovery workspaces~~ CLOSED
 
-**Symptom:** `rosup add rclcpp -p <pkg>` and `rosup remove rclcpp -p <pkg>`
-always fail with "could not find package.xml for `<pkg>`" when the workspace
-uses auto-discovery (no explicit `members` list).
-
-**Root cause:** `find_member_xml()` in `main.rs` iterates
-`ws.members.iter().flatten()`, which yields nothing when `members` is `None`.
-
-**Impact:** High. Any auto-discovery workspace (the recommended default) cannot
-use the `-p` flag for `add` or `remove`.
-
-**Workaround:** `cd` into the target package directory and run `rosup add` /
-`rosup remove` without `-p`.
-
-**Planned fix:** `find_member_xml()` should call `colcon_scan` or
-`project.members()` when `members` is `None`, the same way `discover_members`
-does in `project.rs`.
+**Fixed in Phase 9.1.** `find_member_xml()` now uses `colcon_scan` to
+discover packages in auto-discovery mode, matching the behavior of
+`discover_members` in `project.rs`.
 
 ---
 

@@ -73,7 +73,7 @@ pub struct WorkspaceProject {
 }
 
 impl WorkspaceProject {
-    /// Create workspace with members in `src/<name>/`.
+    /// Create workspace with explicit members in `src/<name>/`.
     pub fn new(members: &[&str]) -> Self {
         let dir = TempDir::new().expect("tempdir");
         let mut member_lines = String::new();
@@ -85,6 +85,19 @@ impl WorkspaceProject {
         }
         let toml = format!("[workspace]\nmembers = [\n{member_lines}]\n");
         write_rosup_toml(dir.path(), &toml);
+        Self { dir }
+    }
+
+    /// Create workspace with auto-discovery (no `members` key) and packages
+    /// under `src/<name>/`.
+    pub fn auto_discovery(members: &[&str]) -> Self {
+        let dir = TempDir::new().expect("tempdir");
+        for name in members {
+            let pkg_dir = dir.path().join("src").join(name);
+            fs::create_dir_all(&pkg_dir).unwrap();
+            write_package_xml(&pkg_dir, name, &[]);
+        }
+        write_rosup_toml(dir.path(), "[workspace]\n");
         Self { dir }
     }
 
