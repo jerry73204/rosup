@@ -31,15 +31,24 @@ pub struct InitResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitMode {
     Package,
+    /// Workspace with auto-discovery (no `members` key).
     Workspace,
+    /// Workspace with an explicit locked member list.
+    WorkspaceLocked,
 }
 
 /// Run `rosup init` in `dir`.
 ///
-/// - If `force_workspace` is true, scan for member packages regardless of
-///   whether `package.xml` is present.
-/// - If `force` is true, overwrite an existing `rosup.toml`.
-pub fn init(dir: &Path, force_workspace: bool, force: bool) -> Result<InitResult, InitError> {
+/// - `force_workspace`: create a workspace manifest instead of a package one.
+/// - `lock`: when `force_workspace` is true, populate an explicit `members`
+///   list via `colcon_scan` instead of writing an empty `[workspace]`.
+/// - `force`: overwrite an existing `rosup.toml`.
+pub fn init(
+    dir: &Path,
+    force_workspace: bool,
+    lock: bool,
+    force: bool,
+) -> Result<InitResult, InitError> {
     let rosup_toml = dir.join("rosup.toml");
 
     if rosup_toml.exists() && !force {
@@ -52,7 +61,11 @@ pub fn init(dir: &Path, force_workspace: bool, force: bool) -> Result<InitResult
     // multi-package clone detection). A src/ directory alone is not sufficient — many
     // single ROS packages have src/ for C++ source files.
     let mode = if force_workspace {
-        InitMode::Workspace
+        if lock {
+            InitMode::WorkspaceLocked
+        } else {
+            InitMode::Workspace
+        }
     } else if has_package_xml {
         InitMode::Package
     } else {
@@ -61,7 +74,8 @@ pub fn init(dir: &Path, force_workspace: bool, force: bool) -> Result<InitResult
 
     let content = match mode {
         InitMode::Package => generate_package_toml(dir)?,
-        InitMode::Workspace => generate_workspace_toml(dir)?,
+        InitMode::Workspace => "[workspace]\n".to_owned(),
+        InitMode::WorkspaceLocked => generate_locked_workspace_toml(dir)?,
     };
 
     std::fs::write(&rosup_toml, content).map_err(|e| InitError::Io {
@@ -82,22 +96,200 @@ fn generate_package_toml(dir: &Path) -> Result<String, InitError> {
     Ok(format!("[package]\nname = \"{}\"\n", manifest.name))
 }
 
-fn generate_workspace_toml(dir: &Path) -> Result<String, InitError> {
-    let scan_root = if dir.join("src").is_dir() {
-        dir.join("src")
-    } else {
-        dir.to_owned()
-    };
-
-    let members = collect_members(dir, &scan_root)?;
+fn generate_locked_workspace_toml(dir: &Path) -> Result<String, InitError> {
+    let members = colcon_scan(dir, &[])?;
     if members.is_empty() {
-        return Err(InitError::NoMembers(scan_root));
+        return Err(InitError::NoMembers(dir.to_owned()));
+    }
+    Ok(format_workspace_toml(&members))
+}
+
+/// Format a `[workspace]` TOML block with an explicit member list.
+pub fn format_workspace_toml(members: &[String]) -> String {
+    let member_lines: String = members.iter().map(|m| format!("  \"{m}\",\n")).collect();
+    format!("[workspace]\nmembers = [\n{member_lines}]\n")
+}
+
+// ── Colcon discovery scanner ───────────────────────────────────────────────────
+
+/// Directory names that Colcon always skips.
+const COLCON_SKIP_DIRS: &[&str] = &["build", "install", "log", ".rosup"];
+
+/// File markers whose presence causes Colcon to skip a directory and all
+/// of its descendants.
+const COLCON_IGNORE_MARKERS: &[&str] = &["COLCON_IGNORE", "AMENT_IGNORE", "CATKIN_IGNORE"];
+
+/// Recursively discover ROS packages using Colcon's discovery rules.
+///
+/// Returns paths relative to `workspace_root`, sorted lexicographically.
+/// The `exclude` slice contains pre-compiled glob patterns; matching paths
+/// are omitted from the result.
+pub fn colcon_scan(
+    workspace_root: &Path,
+    exclude: &[glob::Pattern],
+) -> Result<Vec<String>, InitError> {
+    let mut members = Vec::new();
+    colcon_visit(workspace_root, workspace_root, exclude, &mut members)?;
+    members.sort();
+    Ok(members)
+}
+
+fn colcon_visit(
+    dir: &Path,
+    workspace_root: &Path,
+    exclude: &[glob::Pattern],
+    members: &mut Vec<String>,
+) -> Result<(), InitError> {
+    // A directory containing package.xml is a ROS package — record it and
+    // stop recursing (packages do not nest).
+    if dir != workspace_root && dir.join("package.xml").exists() {
+        let rel = dir
+            .strip_prefix(workspace_root)
+            .unwrap_or(dir)
+            .display()
+            .to_string();
+        if !exclude.iter().any(|p| p.matches(&rel)) {
+            members.push(rel);
+        }
+        return Ok(());
     }
 
-    let member_lines: String = members.iter().map(|m| format!("  \"{}\",\n", m)).collect();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            return Err(InitError::Io {
+                path: dir.to_owned(),
+                source: e,
+            });
+        }
+    };
 
-    Ok(format!("[workspace]\nmembers = [\n{member_lines}]\n"))
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        // Skip hidden directories (dot-prefixed), except the workspace root itself.
+        if name_str.starts_with('.') {
+            continue;
+        }
+
+        // Skip standard Colcon output directories.
+        if COLCON_SKIP_DIRS.contains(&name_str.as_ref()) {
+            continue;
+        }
+
+        // Skip if any ignore marker is present inside this directory.
+        if COLCON_IGNORE_MARKERS.iter().any(|m| path.join(m).exists()) {
+            continue;
+        }
+
+        subdirs.push(path);
+    }
+
+    // Sort for deterministic output independent of filesystem ordering.
+    subdirs.sort();
+
+    for subdir in subdirs {
+        colcon_visit(&subdir, workspace_root, exclude, members)?;
+    }
+
+    Ok(())
 }
+
+// ── rosup sync TOML patch ─────────────────────────────────────────────────────
+
+/// Update the `members = [...]` block in `rosup.toml` text in place.
+///
+/// - If a `members = [` block already exists, it is replaced.
+/// - If absent and `members` is `Some`, the block is inserted after the
+///   `[workspace]` header line.
+/// - If absent and `members` is `None`, the text is returned unchanged
+///   (preserving auto-discovery mode).
+pub fn patch_members(toml_text: &str, members: Option<&[String]>) -> String {
+    let Some(members) = members else {
+        return toml_text.to_owned();
+    };
+
+    let new_block = {
+        let lines: String = members.iter().map(|m| format!("  \"{m}\",\n")).collect();
+        format!("members = [\n{lines}]")
+    };
+
+    // Try to replace an existing `members = [...]` block (possibly multi-line).
+    if let Some(start) = find_members_block_start(toml_text) {
+        let end = find_members_block_end(toml_text, start);
+        let mut out = toml_text[..start].to_owned();
+        out.push_str(&new_block);
+        out.push_str(&toml_text[end..]);
+        return out;
+    }
+
+    // No existing block — insert after `[workspace]` line.
+    let mut out = String::with_capacity(toml_text.len() + new_block.len() + 1);
+    for line in toml_text.lines() {
+        out.push_str(line);
+        out.push('\n');
+        if line.trim() == "[workspace]" {
+            out.push_str(&new_block);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Find the byte offset of `members = [` within `text`, or `None`.
+fn find_members_block_start(text: &str) -> Option<usize> {
+    for (i, _) in text.char_indices() {
+        let slice = &text[i..];
+        let stripped = slice.trim_start_matches([' ', '\t']);
+        if let Some(after_key) = stripped.strip_prefix("members") {
+            // Confirm it's `members = [`
+            let rest = after_key.trim_start();
+            if let Some(after_eq) = rest.strip_prefix('=')
+                && after_eq.trim_start().starts_with('[')
+            {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+/// Find the byte offset just past the closing `]` of the members block.
+fn find_members_block_end(text: &str, start: usize) -> usize {
+    let mut depth = 0usize;
+    let mut found_open = false;
+    for (i, ch) in text[start..].char_indices() {
+        match ch {
+            '[' => {
+                depth += 1;
+                found_open = true;
+            }
+            ']' => {
+                depth -= 1;
+                if found_open && depth == 0 {
+                    // Consume a trailing newline if present.
+                    let end = start + i + 1;
+                    return if text[end..].starts_with('\n') {
+                        end + 1
+                    } else {
+                        end
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+    text.len()
+}
+
+// ── gitignore helper ───────────────────────────────────────────────────────────
 
 /// Ensure `.rosup/` is listed in `<dir>/.gitignore`, appending if necessary.
 fn update_gitignore(dir: &Path) -> Result<(), InitError> {
@@ -131,45 +323,6 @@ fn update_gitignore(dir: &Path) -> Result<(), InitError> {
     Ok(())
 }
 
-/// Walk `scan_root` for directories containing `package.xml` and return their
-/// paths relative to `workspace_root`.
-fn collect_members(workspace_root: &Path, scan_root: &Path) -> Result<Vec<String>, InitError> {
-    let mut members = Vec::new();
-    visit_dir(scan_root, workspace_root, &mut members)?;
-    members.sort();
-    Ok(members)
-}
-
-fn visit_dir(
-    dir: &Path,
-    workspace_root: &Path,
-    members: &mut Vec<String>,
-) -> Result<(), InitError> {
-    if dir.join("package.xml").exists() {
-        let rel = dir
-            .strip_prefix(workspace_root)
-            .unwrap_or(dir)
-            .display()
-            .to_string();
-        members.push(rel);
-        // Don't recurse into packages — ROS packages don't nest.
-        return Ok(());
-    }
-
-    let entries = std::fs::read_dir(dir).map_err(|e| InitError::Io {
-        path: dir.to_owned(),
-        source: e,
-    })?;
-
-    for entry in entries.flatten() {
-        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            visit_dir(&entry.path(), workspace_root, members)?;
-        }
-    }
-
-    Ok(())
-}
-
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -179,12 +332,14 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    // ── init ──────────────────────────────────────────────────────────────────
+
     #[test]
     fn init_single_package() {
         let tmp = TempDir::new().unwrap();
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
 
-        let result = init(tmp.path(), false, false).unwrap();
+        let result = init(tmp.path(), false, false, false).unwrap();
         assert_eq!(result.mode, InitMode::Package);
         let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
         assert!(content.contains("[package]"));
@@ -192,7 +347,19 @@ mod tests {
     }
 
     #[test]
-    fn init_workspace_explicit_flag_scans_src_dir() {
+    fn init_workspace_auto_discovery() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src/pkg_a")).unwrap();
+
+        let result = init(tmp.path(), true, false, false).unwrap();
+        assert_eq!(result.mode, InitMode::Workspace);
+        let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
+        assert!(content.contains("[workspace]"));
+        assert!(!content.contains("members"));
+    }
+
+    #[test]
+    fn init_workspace_locked_scans_src_dir() {
         let tmp = TempDir::new().unwrap();
         let pkg_a = tmp.path().join("src/pkg_a");
         let pkg_b = tmp.path().join("src/pkg_b");
@@ -201,8 +368,8 @@ mod tests {
         copy_fixture("package_xml/pkg_a.xml", &pkg_a, "package.xml");
         copy_fixture("package_xml/pkg_b.xml", &pkg_b, "package.xml");
 
-        let result = init(tmp.path(), true, false).unwrap();
-        assert_eq!(result.mode, InitMode::Workspace);
+        let result = init(tmp.path(), true, true, false).unwrap();
+        assert_eq!(result.mode, InitMode::WorkspaceLocked);
         let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
         assert!(content.contains("[workspace]"));
         assert!(content.contains("src/pkg_a"));
@@ -215,7 +382,7 @@ mod tests {
         fs::create_dir_all(tmp.path().join("src/pkg_a")).unwrap();
 
         // Without force_workspace, src/ alone is not enough — must be explicit.
-        let err = init(tmp.path(), false, false).unwrap_err();
+        let err = init(tmp.path(), false, false, false).unwrap_err();
         assert!(matches!(err, InitError::NoPackageXml(_)));
     }
 
@@ -225,7 +392,7 @@ mod tests {
         copy_fixture("package_xml/stub_pkg.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join("rosup.toml"), "[package]\nname = \"p\"\n").unwrap();
 
-        let err = init(tmp.path(), false, false).unwrap_err();
+        let err = init(tmp.path(), false, false, false).unwrap_err();
         assert!(matches!(err, InitError::AlreadyExists(_)));
     }
 
@@ -235,7 +402,7 @@ mod tests {
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join("rosup.toml"), "[package]\nname = \"old\"\n").unwrap();
 
-        init(tmp.path(), false, true).unwrap();
+        init(tmp.path(), false, false, true).unwrap();
         let content = fs::read_to_string(tmp.path().join("rosup.toml")).unwrap();
         assert!(content.contains("name = \"my_pkg\""));
     }
@@ -243,7 +410,7 @@ mod tests {
     #[test]
     fn init_errors_with_no_package_xml() {
         let tmp = TempDir::new().unwrap();
-        let err = init(tmp.path(), false, false).unwrap_err();
+        let err = init(tmp.path(), false, false, false).unwrap_err();
         assert!(matches!(err, InitError::NoPackageXml(_)));
     }
 
@@ -252,7 +419,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
 
-        init(tmp.path(), false, false).unwrap();
+        init(tmp.path(), false, false, false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(content.lines().any(|l| l.trim() == ".rosup/"));
@@ -264,7 +431,7 @@ mod tests {
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join(".gitignore"), "build/\ninstall/\n").unwrap();
 
-        init(tmp.path(), false, false).unwrap();
+        init(tmp.path(), false, false, false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(content.contains("build/"));
@@ -278,9 +445,152 @@ mod tests {
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join(".gitignore"), ".rosup/\n").unwrap();
 
-        init(tmp.path(), false, false).unwrap();
+        init(tmp.path(), false, false, false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert_eq!(content.lines().filter(|l| l.trim() == ".rosup/").count(), 1);
+    }
+
+    // ── colcon_scan ───────────────────────────────────────────────────────────
+
+    fn make_pkg(dir: &Path, name: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(
+            dir.join("package.xml"),
+            format!("<package><name>{name}</name></package>"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn colcon_scan_finds_packages_under_src() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/pkg_a"), "pkg_a");
+        make_pkg(&tmp.path().join("src/pkg_b"), "pkg_b");
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/pkg_a", "src/pkg_b"]);
+    }
+
+    #[test]
+    fn colcon_scan_respects_colcon_ignore() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/good"), "good");
+        let ignored = tmp.path().join("src/ignored");
+        make_pkg(&ignored, "ignored");
+        fs::write(ignored.join("COLCON_IGNORE"), "").unwrap();
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/good"]);
+    }
+
+    #[test]
+    fn colcon_scan_respects_ament_ignore() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/good"), "good");
+        let ignored = tmp.path().join("src/ignored");
+        make_pkg(&ignored, "ignored");
+        fs::write(ignored.join("AMENT_IGNORE"), "").unwrap();
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/good"]);
+    }
+
+    #[test]
+    fn colcon_scan_respects_catkin_ignore() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/good"), "good");
+        let ignored = tmp.path().join("src/ignored");
+        make_pkg(&ignored, "ignored");
+        fs::write(ignored.join("CATKIN_IGNORE"), "").unwrap();
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/good"]);
+    }
+
+    #[test]
+    fn colcon_scan_skips_output_dirs() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/good"), "good");
+        // These are standard colcon output dirs and must be skipped.
+        for dir in &["build", "install", "log", ".rosup"] {
+            make_pkg(&tmp.path().join(dir).join("fake_pkg"), "fake_pkg");
+        }
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/good"]);
+    }
+
+    #[test]
+    fn colcon_scan_skips_hidden_dirs() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/good"), "good");
+        make_pkg(&tmp.path().join(".hidden/pkg"), "pkg");
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/good"]);
+    }
+
+    #[test]
+    fn colcon_scan_does_not_recurse_into_packages() {
+        let tmp = TempDir::new().unwrap();
+        // pkg_outer has a package.xml; nested/ inside it also has one.
+        // Only pkg_outer should appear.
+        let outer = tmp.path().join("src/pkg_outer");
+        make_pkg(&outer, "pkg_outer");
+        make_pkg(&outer.join("nested"), "nested");
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/pkg_outer"]);
+    }
+
+    #[test]
+    fn colcon_scan_exclude_filters_results() {
+        let tmp = TempDir::new().unwrap();
+        make_pkg(&tmp.path().join("src/pkg_a"), "pkg_a");
+        make_pkg(&tmp.path().join("src/experimental_pkg"), "experimental_pkg");
+
+        let exclude = vec![glob::Pattern::new("src/experimental_*").unwrap()];
+        let members = colcon_scan(tmp.path(), &exclude).unwrap();
+        assert_eq!(members, vec!["src/pkg_a"]);
+    }
+
+    // ── patch_members ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn patch_members_replaces_existing_block() {
+        let original = "[workspace]\nmembers = [\n  \"src/old\",\n]\n";
+        let result = patch_members(
+            original,
+            Some(&["src/new_a".to_owned(), "src/new_b".to_owned()]),
+        );
+        assert!(result.contains("src/new_a"));
+        assert!(result.contains("src/new_b"));
+        assert!(!result.contains("src/old"));
+        assert!(result.starts_with("[workspace]"));
+    }
+
+    #[test]
+    fn patch_members_inserts_when_absent() {
+        let original = "[workspace]\n";
+        let result = patch_members(original, Some(&["src/pkg_a".to_owned()]));
+        assert!(result.contains("members = ["));
+        assert!(result.contains("src/pkg_a"));
+        assert!(result.starts_with("[workspace]"));
+    }
+
+    #[test]
+    fn patch_members_none_is_noop() {
+        let original = "[workspace]\n";
+        let result = patch_members(original, None);
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn patch_members_preserves_surrounding_fields() {
+        let original = "[workspace]\nmembers = [\n  \"src/old\",\n]\nexclude = [\"src/skip\"]\n";
+        let result = patch_members(original, Some(&["src/new".to_owned()]));
+        assert!(result.contains("src/new"));
+        assert!(result.contains("exclude = [\"src/skip\"]"));
     }
 }

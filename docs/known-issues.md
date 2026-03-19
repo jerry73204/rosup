@@ -1,19 +1,13 @@
 # Known Issues
 
-## KI-001 — Workspace member list drifts in large workspaces
+## ~~KI-001 — Workspace member list drifts in large workspaces~~ CLOSED
 
-**Symptom:** In workspaces with many packages (e.g. Autoware with 450+
-packages), the `members` list in `rosup.toml` must be maintained by hand.
-Adding, removing, or moving packages requires manually editing the manifest.
-Running `rosup init --workspace --force` regenerates the list but discards
-any manual customisations in the file.
+**Fixed in Phase 8.** `members` is now optional in `[workspace]`. When omitted,
+rosup uses Colcon's auto-discovery rules. When an explicit list is desired, use
+`rosup init --workspace --lock` to generate it or `rosup sync` to keep it
+up to date.
 
-**Impact:** High for large Colcon workspaces.
-
-**Workaround:** Re-run `rosup init --workspace --force` after structural
-changes, then manually re-apply any customisations.
-
-**Planned fix:** `rosup sync` command — see `docs/features/workspace-rescan.md`.
+See `docs/reference/rosup-toml.md` and `docs/reference/cli.md`.
 
 ---
 

@@ -32,6 +32,7 @@ name = "my_robot_nav"      # must match <name> in package.xml
 
 ```toml
 [workspace]
+# members is optional — omit for Colcon auto-discovery
 members = [
     "src/my_robot_description",
     "src/my_robot_bringup",
@@ -44,8 +45,49 @@ exclude = ["src/experimental_*"]
 
 | Field     | Type     | Required | Description                                      |
 |-----------|----------|----------|--------------------------------------------------|
-| `members` | string[] | yes      | Glob patterns or paths to member package dirs     |
-| `exclude` | string[] | no       | Glob patterns to exclude from member discovery    |
+| `members` | string[] | no       | Glob patterns for member package dirs. When absent, rosup discovers packages using Colcon's rules. |
+| `exclude` | string[] | no       | Glob patterns to exclude from member discovery (applied in both modes). |
+
+### Auto-discovery (no `members`)
+
+When `members` is omitted, rosup recursively scans the workspace root using
+Colcon's package discovery rules:
+
+- A directory containing `package.xml` is a ROS package. Recursion stops there
+  (packages do not nest).
+- Directories containing `COLCON_IGNORE`, `AMENT_IGNORE`, or `CATKIN_IGNORE`
+  are skipped entirely (including descendants).
+- `build/`, `install/`, `log/`, `.rosup/`, and hidden directories (`.git`, etc.)
+  are always skipped.
+- `exclude` patterns are applied after discovery.
+
+```toml
+# Minimal workspace manifest — auto-discovers all packages.
+[workspace]
+```
+
+### Glob mode (`members` present)
+
+Each entry in `members` is a glob pattern expanded relative to the workspace
+root:
+
+- `*` matches a single path segment (one directory level).
+- `**` matches across directory boundaries (recursive).
+
+```toml
+[workspace]
+members = ["src/*"]          # direct children of src/ only
+# members = ["src/**"]       # all descendants of src/
+exclude = ["src/experimental_*"]
+```
+
+A pattern that matches zero directories emits a warning but does not cause an
+error. To convert auto-discovery output to a locked list, run `rosup sync --lock`.
+
+### `rosup sync` — keeping the member list up to date
+
+For workspaces with an explicit `members` list, `rosup sync` resynchronises it
+with the current directory structure. See `rosup sync` in the CLI reference.
 
 ---
 

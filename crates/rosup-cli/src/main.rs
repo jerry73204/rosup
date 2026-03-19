@@ -56,9 +56,24 @@ enum Command {
         /// Force workspace mode
         #[arg(long)]
         workspace: bool,
+        /// Write an explicit locked member list (only with --workspace)
+        #[arg(long)]
+        lock: bool,
         /// Overwrite an existing rosup.toml
         #[arg(long)]
         force: bool,
+    },
+    /// Sync the member list in rosup.toml with the current workspace state
+    Sync {
+        /// Print what would change; do not write
+        #[arg(long)]
+        dry_run: bool,
+        /// Exit non-zero if the member list is out of date (CI mode)
+        #[arg(long)]
+        check: bool,
+        /// Convert auto-discovery workspace to an explicit member list
+        #[arg(long)]
+        lock: bool,
     },
     /// Clone a package from the ROS index
     Clone {
@@ -213,7 +228,16 @@ fn main() -> Result<()> {
             node,
             destination,
         } => cmd_new(name, ros_distro, build_type, deps, node, destination),
-        Command::Init { workspace, force } => cmd_init(workspace, force),
+        Command::Init {
+            workspace,
+            lock,
+            force,
+        } => cmd_init(workspace, lock, force),
+        Command::Sync {
+            dry_run,
+            check,
+            lock,
+        } => cmd_sync(dry_run, check, lock),
         Command::Add {
             dep_name,
             package,
@@ -380,18 +404,107 @@ fn cmd_new(
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
-fn cmd_init(force_workspace: bool, force: bool) -> Result<()> {
+fn cmd_init(force_workspace: bool, lock: bool, force: bool) -> Result<()> {
+    if lock && !force_workspace {
+        eprintln!("warning: --lock has no effect without --workspace");
+    }
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
-    let result = init::init(&cwd, force_workspace, force)?;
+    let result = init::init(&cwd, force_workspace, lock, force)?;
     let mode_label = match result.mode {
         InitMode::Package => "package",
-        InitMode::Workspace => "workspace",
+        InitMode::Workspace => "workspace (auto-discovery)",
+        InitMode::WorkspaceLocked => "workspace (locked member list)",
     };
     println!(
         "Initialized {} manifest at {}",
         mode_label,
         result.rosup_toml_path.display()
     );
+    Ok(())
+}
+
+// ── sync ──────────────────────────────────────────────────────────────────────
+
+fn cmd_sync(dry_run: bool, check: bool, lock: bool) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let ws = project
+        .config
+        .workspace
+        .as_ref()
+        .ok_or_else(|| color_eyre::eyre::eyre!("`rosup sync` requires a workspace project"))?;
+
+    // If auto-discovery and no --lock, nothing to do.
+    if ws.members.is_none() && !lock {
+        println!(
+            "Workspace is in auto-discovery mode. Use --lock to write an explicit member list."
+        );
+        return Ok(());
+    }
+
+    let excludes: Vec<glob::Pattern> = ws
+        .exclude
+        .iter()
+        .map(|p| glob::Pattern::new(p))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let current: Vec<String> =
+        init::colcon_scan(&project.root, &excludes).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let existing: Vec<String> = ws.members.clone().unwrap_or_default();
+
+    let added: Vec<&str> = current
+        .iter()
+        .filter(|m| !existing.contains(m))
+        .map(String::as_str)
+        .collect();
+    let removed: Vec<&str> = existing
+        .iter()
+        .filter(|m| !current.contains(m))
+        .map(String::as_str)
+        .collect();
+
+    if check {
+        if added.is_empty() && removed.is_empty() {
+            println!("Member list is up to date.");
+            return Ok(());
+        }
+        for m in &added {
+            println!("+ {m}");
+        }
+        for m in &removed {
+            println!("- {m}");
+        }
+        color_eyre::eyre::bail!("member list is out of date");
+    }
+
+    if dry_run {
+        if added.is_empty() && removed.is_empty() {
+            println!("Member list is up to date.");
+        } else {
+            for m in &added {
+                println!("+ {m}");
+            }
+            for m in &removed {
+                println!("- {m}");
+            }
+        }
+        return Ok(());
+    }
+
+    if added.is_empty() && removed.is_empty() && !lock {
+        println!("Member list is already up to date.");
+        return Ok(());
+    }
+
+    // Write the updated member list back.
+    let toml_path = project.root.join("rosup.toml");
+    let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
+    let patched = init::patch_members(&toml_text, Some(&current));
+    std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
+    println!("Updated {} member(s) in rosup.toml.", current.len());
     Ok(())
 }
 
@@ -705,7 +818,7 @@ fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
     let pkg_xml_count = count_package_xmls(&dest);
     let force_workspace = pkg_xml_count > 1;
 
-    init::init(&dest, force_workspace, false).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    init::init(&dest, force_workspace, false, false).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     println!("Cloned `{}` repository to {}", src.repo, dest.display());
     Ok(())
@@ -816,7 +929,7 @@ fn count_package_xmls(dir: &std::path::Path) -> usize {
 fn find_member_xml(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
     let project = Project::load_at(root)?;
     if let Some(ws) = &project.config.workspace {
-        for pattern in &ws.members {
+        for pattern in ws.members.iter().flatten() {
             let abs = root.join(pattern).display().to_string();
             for entry in glob::glob(&abs).wrap_err("invalid glob pattern")? {
                 let entry: std::path::PathBuf = entry.wrap_err("glob error")?;

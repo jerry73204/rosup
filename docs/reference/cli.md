@@ -22,23 +22,24 @@ be sourced (`source /opt/ros/{distro}/setup.bash`) and will warn if it is not.
 Initialize a new `rosup.toml` for an existing package or workspace.
 
 ```
-rosup init [--workspace] [--force]
+rosup init [--workspace] [--lock] [--force]
 ```
 
-| Option        | Description                                      |
-|---------------|--------------------------------------------------|
-| `--workspace` | Force workspace mode even without a `src/` dir  |
-| `--force`     | Overwrite an existing `rosup.toml`                |
+| Option        | Description                                                    |
+|---------------|----------------------------------------------------------------|
+| `--workspace` | Create a workspace manifest instead of a package one           |
+| `--lock`      | Write an explicit locked member list (only with `--workspace`) |
+| `--force`     | Overwrite an existing `rosup.toml`                             |
 
 **Behavior:**
 
 - Without `--workspace`: looks for `package.xml` in the current directory.
   Generates a single-package `rosup.toml` with `[package]` populated from
   `package.xml`.
-- With `--workspace`: scans for packages under `src/` (or current directory).
-  Generates a workspace `rosup.toml` with discovered members.
-- If both a `src/` directory and a `package.xml` exist, defaults to workspace
-  mode (common colcon layout).
+- With `--workspace` (no `--lock`): writes an empty `[workspace]` section,
+  enabling Colcon auto-discovery. No `members` key is written.
+- With `--workspace --lock`: runs Colcon auto-discovery and writes the full
+  `members` list. The list is a snapshot; use `rosup sync` to update it later.
 - Adds `.rosup/` to `.gitignore`.
 
 **Examples:**
@@ -47,8 +48,54 @@ rosup init [--workspace] [--force]
 # Inside a single package
 cd ~/nav2_core && rosup init
 
-# Inside a colcon workspace
-cd ~/my_ws && rosup init
+# Workspace with auto-discovery (recommended for large workspaces)
+cd ~/my_ws && rosup init --workspace
+
+# Workspace with explicit pinned member list
+cd ~/my_ws && rosup init --workspace --lock
+```
+
+---
+
+### `rosup sync`
+
+Synchronise the `members` list in `rosup.toml` with the current workspace
+directory structure.
+
+```
+rosup sync [--dry-run] [--check] [--lock]
+```
+
+| Option      | Description                                                         |
+|-------------|---------------------------------------------------------------------|
+| `--dry-run` | Print what would change; do not write                               |
+| `--check`   | Exit non-zero if the member list is out of date (CI mode)           |
+| `--lock`    | Convert an auto-discovery workspace to an explicit member list      |
+
+**Behavior:**
+
+- Requires a workspace project; errors if `rosup.toml` has `[package]`.
+- Runs Colcon auto-discovery to compute the current ground-truth member list.
+- Compares against the `members` key (if any) in `rosup.toml`.
+- Updates the `members` block in place, preserving all other `rosup.toml`
+  content including comments.
+- If `members` is absent (auto-discovery mode) and `--lock` is not set,
+  prints an informational message and exits without modifying the file.
+
+**Examples:**
+
+```bash
+# Update member list after adding/removing packages
+rosup sync
+
+# Preview changes without writing
+rosup sync --dry-run
+
+# CI: fail if member list is stale
+rosup sync --check
+
+# Convert auto-discovery to explicit list
+rosup sync --lock
 ```
 
 ---

@@ -47,9 +47,15 @@ pub struct PackageConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
-    /// Glob patterns or paths to member package directories.
-    pub members: Vec<String>,
-    /// Glob patterns to exclude from member discovery.
+    /// Glob patterns for member package directories.
+    ///
+    /// When absent, rosup auto-discovers packages using Colcon's rules
+    /// (respecting `COLCON_IGNORE`, `AMENT_IGNORE`, `CATKIN_IGNORE`).
+    /// When present, each entry is a glob: `*` matches one path segment,
+    /// `**` matches across directory boundaries.
+    #[serde(default)]
+    pub members: Option<Vec<String>>,
+    /// Glob patterns to exclude from member discovery (applied in both modes).
     #[serde(default)]
     pub exclude: Vec<String>,
 }
@@ -148,14 +154,26 @@ name = "my_pkg"
     }
 
     #[test]
-    fn workspace_mode() {
+    fn workspace_mode_with_members() {
         let cfg = parse(
             r#"[workspace]
 members = ["src/*"]
 "#,
         );
         assert_eq!(cfg.mode().unwrap(), ProjectMode::Workspace);
-        assert_eq!(cfg.workspace.unwrap().members, vec!["src/*"]);
+        assert_eq!(
+            cfg.workspace.unwrap().members,
+            Some(vec!["src/*".to_owned()])
+        );
+    }
+
+    #[test]
+    fn workspace_mode_auto_discovery() {
+        let cfg = parse("[workspace]\n");
+        assert_eq!(cfg.mode().unwrap(), ProjectMode::Workspace);
+        let ws = cfg.workspace.unwrap();
+        assert!(ws.members.is_none());
+        assert!(ws.exclude.is_empty());
     }
 
     #[test]

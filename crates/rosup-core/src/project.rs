@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::config::{RosupConfig, WorkspaceConfig};
+use crate::init::{self, InitError};
 use crate::package_xml::{self, PackageManifest};
 
 #[derive(Debug, Error)]
@@ -26,6 +27,8 @@ pub enum ProjectError {
     PackageXml(#[from] package_xml::PackageXmlError),
     #[error("glob error: {0}")]
     Glob(#[from] glob::PatternError),
+    #[error(transparent)]
+    Init(#[from] InitError),
 }
 
 /// A fully loaded rosup project rooted at a specific directory.
@@ -88,7 +91,11 @@ fn find_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Expand glob patterns in workspace members and discover package.xml files.
+/// Discover member packages for a workspace.
+///
+/// - `members = None`: Colcon auto-discovery via `colcon_scan`.
+/// - `members = Some(patterns)`: expand each glob; warn when a pattern matches
+///   nothing; apply `exclude` patterns.
 fn discover_members(
     root: &Path,
     ws: &WorkspaceConfig,
@@ -99,32 +106,49 @@ fn discover_members(
         .map(|p| glob::Pattern::new(p))
         .collect::<Result<_, _>>()?;
 
-    let mut manifests = Vec::new();
+    let rel_paths: Vec<String> = match &ws.members {
+        // Auto-discovery: delegate to Colcon rules.
+        None => init::colcon_scan(root, &excludes)?,
 
-    for pattern in &ws.members {
-        let abs_pattern = root.join(pattern).display().to_string();
-        for entry in glob::glob(&abs_pattern)? {
-            let entry = match entry {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-
-            // Check against exclude patterns (relative to root).
-            let rel = entry.strip_prefix(root).unwrap_or(&entry);
-            let rel_str = rel.display().to_string();
-            if excludes.iter().any(|ex| ex.matches(&rel_str)) {
-                continue;
+        // Explicit glob patterns.
+        Some(patterns) => {
+            let mut paths = Vec::new();
+            for pattern in patterns {
+                let abs_pattern = root.join(pattern).display().to_string();
+                let mut matched = 0usize;
+                for entry in glob::glob(&abs_pattern)? {
+                    let entry = match entry {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
+                    // Only directories with a package.xml directly inside.
+                    if !entry.is_dir() || !entry.join("package.xml").exists() {
+                        continue;
+                    }
+                    let rel = entry.strip_prefix(root).unwrap_or(&entry);
+                    let rel_str = rel.display().to_string();
+                    if excludes.iter().any(|ex| ex.matches(&rel_str)) {
+                        continue;
+                    }
+                    paths.push(rel_str);
+                    matched += 1;
+                }
+                if matched == 0 {
+                    tracing::warn!("workspace member pattern `{pattern}` matched no packages");
+                }
             }
-
-            let pkg_xml = entry.join("package.xml");
-            if pkg_xml.exists() {
-                tracing::debug!("discovered member: {}", entry.display());
-                manifests.push(package_xml::parse_file(&pkg_xml)?);
-            }
+            paths
         }
-    }
+    };
 
-    Ok(manifests)
+    rel_paths
+        .iter()
+        .map(|rel| {
+            let pkg_xml = root.join(rel).join("package.xml");
+            tracing::debug!("discovered member: {rel}");
+            Ok(package_xml::parse_file(&pkg_xml)?)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -189,5 +213,121 @@ mod tests {
         assert_eq!(members.len(), 2);
         assert_eq!(members[0].name, "pkg_a");
         assert_eq!(members[1].name, "pkg_b");
+    }
+
+    fn make_ws_with_packages(root: &std::path::Path, pkg_names: &[&str]) {
+        for &name in pkg_names {
+            let dir = root.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            // Minimal package.xml.
+            fs::write(
+                dir.join("package.xml"),
+                format!(
+                    "<?xml version=\"1.0\"?>\n<package format=\"3\"><name>{name}</name>\
+                     <version>0.0.0</version><description>d</description>\
+                     <maintainer email=\"a@b.c\">A</maintainer>\
+                     <license>MIT</license></package>\n"
+                ),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn auto_discovery_finds_packages() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        make_ws_with_packages(&src, &["pkg_a", "pkg_b"]);
+
+        fs::write(tmp.path().join("rosup.toml"), "[workspace]\n").unwrap();
+
+        let project = Project::load_at(tmp.path()).unwrap();
+        let mut members = project.members().unwrap();
+        members.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].name, "pkg_a");
+        assert_eq!(members[1].name, "pkg_b");
+    }
+
+    #[test]
+    fn auto_discovery_respects_exclude() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        make_ws_with_packages(&src, &["pkg_a", "experimental_pkg"]);
+
+        fs::write(
+            tmp.path().join("rosup.toml"),
+            "[workspace]\nexclude = [\"src/experimental_*\"]\n",
+        )
+        .unwrap();
+
+        let project = Project::load_at(tmp.path()).unwrap();
+        let members = project.members().unwrap();
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "pkg_a");
+    }
+
+    #[test]
+    fn glob_star_is_single_level() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        make_ws_with_packages(&src, &["pkg_a"]);
+        // pkg nested two levels deep — should NOT be found with `src/*`.
+        let nested = src.join("sub").join("nested_pkg");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(
+            nested.join("package.xml"),
+            "<?xml version=\"1.0\"?>\n<package format=\"3\"><name>nested_pkg</name>\
+             <version>0.0.0</version><description>d</description>\
+             <maintainer email=\"a@b.c\">A</maintainer>\
+             <license>MIT</license></package>\n",
+        )
+        .unwrap();
+
+        fs::write(
+            tmp.path().join("rosup.toml"),
+            "[workspace]\nmembers = [\"src/*\"]\n",
+        )
+        .unwrap();
+
+        let project = Project::load_at(tmp.path()).unwrap();
+        let members = project.members().unwrap();
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "pkg_a");
+    }
+
+    #[test]
+    fn glob_double_star_is_recursive() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        make_ws_with_packages(&src, &["pkg_a"]);
+        let nested = src.join("sub").join("nested_pkg");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(
+            nested.join("package.xml"),
+            "<?xml version=\"1.0\"?>\n<package format=\"3\"><name>nested_pkg</name>\
+             <version>0.0.0</version><description>d</description>\
+             <maintainer email=\"a@b.c\">A</maintainer>\
+             <license>MIT</license></package>\n",
+        )
+        .unwrap();
+
+        fs::write(
+            tmp.path().join("rosup.toml"),
+            "[workspace]\nmembers = [\"src/**\"]\n",
+        )
+        .unwrap();
+
+        let project = Project::load_at(tmp.path()).unwrap();
+        let mut members = project.members().unwrap();
+        members.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(members.len(), 2);
+        let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"pkg_a"));
+        assert!(names.contains(&"nested_pkg"));
     }
 }

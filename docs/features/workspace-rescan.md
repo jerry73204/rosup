@@ -1,3 +1,11 @@
+# Feature: Workspace Rescan (`rosup sync`) — IMPLEMENTED (Phase 8)
+
+> **Status:** Superseded by Phase 8 implementation.
+> See `docs/phases/8-workspace-auto-discovery.md` for the implemented design
+> and `docs/reference/cli.md` for the `rosup sync` command reference.
+
+---
+
 # Feature: Workspace Rescan (`rosup sync`)
 
 ## Problem

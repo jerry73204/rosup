@@ -24,7 +24,24 @@ fn init_package_mode() {
 }
 
 #[test]
-fn init_workspace_mode() {
+fn init_workspace_mode_auto_discovery() {
+    let dir = TempDir::new().unwrap();
+
+    env()
+        .cmd(dir.path())
+        .args(["init", "--workspace"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("auto-discovery"));
+
+    let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
+    assert!(toml.contains("[workspace]"));
+    // Auto-discovery mode must NOT write a members key.
+    assert!(!toml.contains("members"));
+}
+
+#[test]
+fn init_workspace_mode_locked() {
     let dir = TempDir::new().unwrap();
     let pkg_a = dir.path().join("src/pkg_a");
     let pkg_b = dir.path().join("src/pkg_b");
@@ -35,10 +52,10 @@ fn init_workspace_mode() {
 
     env()
         .cmd(dir.path())
-        .args(["init", "--workspace"])
+        .args(["init", "--workspace", "--lock"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("workspace"));
+        .stdout(predicates::str::contains("locked"));
 
     let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
     assert!(toml.contains("[workspace]"));
