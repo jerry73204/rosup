@@ -2,13 +2,21 @@
 
 use std::path::PathBuf;
 
-/// Directory containing the shim binaries (target/debug/ or target/release/).
+/// Directory containing the shim binaries (`target/debug/`).
 ///
-/// Relies on the shims crate being built as part of the same workspace,
-/// which nextest ensures before running any tests.
+/// Nextest only sets `CARGO_BIN_EXE_*` for packages it compiles as test
+/// targets. The `shims` crate has no tests, so we derive the path from
+/// `CARGO_MANIFEST_DIR` instead.
 pub fn shim_dir() -> PathBuf {
-    assert_cmd::cargo::cargo_bin("colcon")
-        .parent()
-        .expect("colcon binary has no parent dir")
-        .to_owned()
+    // CARGO_MANIFEST_DIR is crates/rosup-tests; go up two levels to the
+    // workspace root, then into target/debug/.
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest
+        .ancestors()
+        .nth(2)
+        .expect("workspace root not found");
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace.join("target"));
+    target.join("debug")
 }

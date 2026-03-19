@@ -35,7 +35,7 @@ fn init_workspace_mode() {
 
     env()
         .cmd(dir.path())
-        .args(["init"])
+        .args(["init", "--workspace"])
         .assert()
         .success()
         .stdout(predicates::str::contains("workspace"));

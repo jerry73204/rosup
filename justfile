@@ -30,6 +30,7 @@ test:
 
 # Run check then test (for CI)
 ci: check
+    cargo build -p shims -p rosup
     cargo nextest run --profile ci
 
 # Install the rosup binary to ~/.cargo/bin
