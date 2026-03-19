@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'rosup@[0-9]*'
+      - 'rosup-core@[0-9]*'
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write  # required for crates.io trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Determine crate and version from tag
+        id: tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          # TAG is either "rosup@x.y.z" or "rosup-core@x.y.z"
+          CRATE="${TAG%@*}"
+          VERSION="${TAG#*@}"
+          echo "crate=$CRATE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag version matches Cargo.toml
+        run: |
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "${{ steps.tag.outputs.crate }}") | .version')
+          TAG_VERSION="${{ steps.tag.outputs.version }}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "Version mismatch: tag says $TAG_VERSION but Cargo.toml says $CARGO_VERSION"
+            exit 1
+          fi
+
+      - name: Publish ${{ steps.tag.outputs.crate }} to crates.io
+        run: cargo publish -p ${{ steps.tag.outputs.crate }}
