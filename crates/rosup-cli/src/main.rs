@@ -761,33 +761,64 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     }
 
     let resolver = Resolver::new(resolve_config, &project_root)?;
-    let plan = resolver
-        .resolve(&dep_names, dry_run, source_only, refresh)
-        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
-    for dep in &plan.resolved {
-        let action = match &dep.method {
-            ResolutionMethod::Ament => "already installed".to_owned(),
-            ResolutionMethod::Binary { packages, .. } => {
-                format!("binary: {}", packages.join(", "))
-            }
-            ResolutionMethod::Source { repo, url, branch } => {
-                format!("source: {repo} ({url} @ {branch})")
-            }
-            ResolutionMethod::Override { url, branch, rev } => {
-                let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
-                format!("override: {url} @ {loc}")
-            }
-        };
-        let prefix = if dry_run { "would resolve" } else { "resolved" };
-        println!("{prefix} {}: {action}", dep.name);
-    }
+    if dry_run {
+        // For --dry-run, build the plan and show everything: resolved deps
+        // first, then unresolved. Exit non-zero if any are unresolved, but
+        // always show the full picture.
+        let plan = resolver
+            .plan(&dep_names, source_only, refresh)
+            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
-    if !plan.unresolved.is_empty() {
-        for name in &plan.unresolved {
-            eprintln!("error: could not resolve `{name}`");
+        for dep in &plan.resolved {
+            let action = match &dep.method {
+                ResolutionMethod::Ament => "already installed".to_owned(),
+                ResolutionMethod::Binary { packages, .. } => {
+                    format!("binary: {}", packages.join(", "))
+                }
+                ResolutionMethod::Source { repo, url, branch } => {
+                    format!("source: {repo} ({url} @ {branch})")
+                }
+                ResolutionMethod::Override { url, branch, rev } => {
+                    let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
+                    format!("override: {url} @ {loc}")
+                }
+            };
+            println!("would resolve {}: {action}", dep.name);
         }
-        color_eyre::eyre::bail!("unresolved dependencies");
+
+        if !plan.unresolved.is_empty() {
+            eprintln!();
+            for name in &plan.unresolved {
+                eprintln!("warning: could not resolve `{name}`");
+            }
+            color_eyre::eyre::bail!(
+                "{} dependency(ies) could not be resolved",
+                plan.unresolved.len()
+            );
+        }
+    } else {
+        // Non-dry-run: resolve and install. Abort on unresolved deps.
+        let plan = resolver
+            .resolve(&dep_names, false, source_only, refresh)
+            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+        for dep in &plan.resolved {
+            let action = match &dep.method {
+                ResolutionMethod::Ament => "already installed".to_owned(),
+                ResolutionMethod::Binary { packages, .. } => {
+                    format!("binary: {}", packages.join(", "))
+                }
+                ResolutionMethod::Source { repo, url, branch } => {
+                    format!("source: {repo} ({url} @ {branch})")
+                }
+                ResolutionMethod::Override { url, branch, rev } => {
+                    let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
+                    format!("override: {url} @ {loc}")
+                }
+            };
+            println!("resolved {}: {action}", dep.name);
+        }
     }
 
     Ok(())

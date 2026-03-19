@@ -116,3 +116,24 @@ Example: `rosup clone nav2_core --distro humble --destination src/`.
 **Fixed in Phase 9.5.** `resolve_distro()` now falls back to `ROS_DISTRO`
 env after checking `--distro` and `rosup.toml`. All commands now have
 consistent distro resolution.
+
+---
+
+## ~~KI-013 — `resolve --dry-run` hides successful resolutions on partial failure~~ CLOSED
+
+**Fixed.** `--dry-run` now calls `resolver.plan()` directly and prints all
+resolved deps first, then lists unresolved deps as warnings. Exits non-zero
+if any are unresolved, but the full plan is always visible.
+
+---
+
+## KI-014 — `rosup clean` produces no output when nothing to clean
+
+**Symptom:** `rosup clean` exits 0 with empty stdout when there are no build
+artifacts. The user gets no confirmation the command ran.
+
+**Impact:** Low. Minor UX annoyance.
+
+**Workaround:** None.
+
+**Planned fix:** Print "Nothing to clean." when no artifacts are found.

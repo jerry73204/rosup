@@ -108,5 +108,5 @@ fn unresolved_dep_exits_nonzero() {
         .args(["resolve", "--dry-run"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("unresolved"));
+        .stderr(predicates::str::contains("could not resolve"));
 }
