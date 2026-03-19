@@ -11,15 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
       - name: Install nightly toolchain (for rustfmt)
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
