@@ -87,24 +87,11 @@ discover packages in auto-discovery mode, matching the behavior of
 
 ---
 
-## KI-008 — Invalid distro name produces a misleading "invalid gzip" error
+## ~~KI-008 — Invalid distro name produces a misleading "invalid gzip" error~~ CLOSED
 
-**Symptom:** `rosup search --distro nonexistent_distro` produces:
-
-```
-failed to decompress cache: invalid gzip header
-```
-
-**Root cause:** `fetch_and_store()` in `rosdistro.rs` downloads from the
-rosdistro GitHub URL without checking the HTTP status code. A 404 response
-returns HTML, which is then fed to `GzDecoder`, causing a gzip error.
-
-**Impact:** Low. Confusing error message; does not corrupt state.
-
-**Workaround:** Use a valid distro name.
-
-**Planned fix:** Check the HTTP status code before decompressing. Return a
-clear error like "distro `<name>` not found in rosdistro index".
+**Fixed in Phase 9.2.** `fetch_and_store()` now checks the HTTP status code
+before decompressing. A 404 produces:
+`distro "nonexistent" not found in rosdistro index (HTTP 404)`.
 
 ---
 

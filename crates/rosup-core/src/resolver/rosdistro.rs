@@ -24,6 +24,8 @@ pub enum RosdistroError {
     Decompress(std::io::Error),
     #[error("failed to parse cache YAML: {0}")]
     Parse(#[from] serde_yaml::Error),
+    #[error("distro \"{0}\" not found in rosdistro index (HTTP {1})")]
+    DistroNotFound(String, u16),
 }
 
 /// Source repository information for a ROS package.
@@ -111,7 +113,15 @@ impl DistroCache {
 
 fn fetch_and_store(distro: &str, cache_path: &Path, ts_path: &Path) -> Result<(), RosdistroError> {
     let url = CACHE_URL_TEMPLATE.replace("{distro}", distro);
-    let bytes = reqwest::blocking::get(&url)?.bytes()?;
+    let response = reqwest::blocking::get(&url)?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(RosdistroError::DistroNotFound(
+            distro.to_owned(),
+            status.as_u16(),
+        ));
+    }
+    let bytes = response.bytes()?;
 
     let mut decoder = GzDecoder::new(bytes.as_ref());
     let mut yaml = String::new();

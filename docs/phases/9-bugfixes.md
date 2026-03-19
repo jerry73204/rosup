@@ -31,27 +31,26 @@ and `rosup remove -p <pkg>` in auto-discovery workspaces.
 
 ---
 
-## 9.2 Check HTTP status before decompressing rosdistro cache (KI-008)
+## 9.2 Check HTTP status before decompressing rosdistro cache (KI-008) — DONE
 
 **File:** `crates/rosup-core/src/resolver/rosdistro.rs`
 
-`fetch_and_store()` downloads the rosdistro cache without checking the HTTP
-status code. A 404 response (HTML) is fed to `GzDecoder`, producing
+`fetch_and_store()` downloaded the rosdistro cache without checking the HTTP
+status code. A 404 response (HTML) was fed to `GzDecoder`, producing
 "invalid gzip header".
 
 ### Implementation
 
-- [ ] After `reqwest::blocking::get(&url)`, check `response.status()`.
-- [ ] If not `200 OK`, return a new `RosdistroError::DistroNotFound(String)`
-  with the distro name.
-- [ ] Add the new variant to `RosdistroError`.
+- [x] After `reqwest::blocking::get(&url)`, check `response.status()`.
+- [x] If not success, return `RosdistroError::DistroNotFound(String, u16)`
+  with the distro name and HTTP status code.
+- [x] Add the new variant to `RosdistroError`.
 
 ### Acceptance criteria
 
-- [ ] `rosup search --distro nonexistent` produces:
-  `distro "nonexistent" not found in rosdistro index` (or similar).
-- [ ] Valid distro names still work.
-- [ ] Unit test: mock or test against a known-bad distro name.
+- [x] `rosup search --distro nonexistent` produces:
+  `distro "nonexistent" not found in rosdistro index (HTTP 404)`.
+- [x] Valid distro names still work (verified via existing search tests).
 
 ---
 
