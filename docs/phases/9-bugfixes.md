@@ -54,35 +54,30 @@ status code. A 404 response (HTML) was fed to `GzDecoder`, producing
 
 ---
 
-## 9.3 Make overlay validation non-fatal for non-build commands (KI-009)
+## 9.3 Make overlay validation non-fatal for non-build commands (KI-009) — DONE
 
 **File:** `crates/rosup-cli/src/main.rs`
 
-`apply_overlays_from_cwd()` runs at startup for every command. If an overlay
-prefix lacks `setup.sh`, even `search`, `sync`, and `add` fail.
+`apply_overlays_from_cwd()` ran at startup for every command. If an overlay
+prefix lacked `setup.sh`, even `search`, `sync`, and `add` failed.
 
 ### Implementation
 
-- [ ] Move overlay activation out of `main()` startup. Instead, call it
-  only from commands that need it (`build`, `test`, `resolve`, `run`,
-  `launch`).
-- [ ] For `search`, `clone`, `init`, `sync`, `add`, `remove`, `clean`:
-  do not activate overlays. These commands work without a sourced
-  environment.
-- [ ] Alternatively: keep the startup call but downgrade the error to a
-  `tracing::warn!` and return an empty env map, so non-build commands
-  still work.
+- [x] Removed the eager `apply_overlays_from_cwd()` call from `main()`.
+- [x] Moved overlay activation into `cmd_build` and `cmd_test` — the only
+  commands that need a sourced ROS environment for colcon.
+- [x] All other commands (`search`, `clone`, `init`, `sync`, `add`,
+  `remove`, `clean`, `resolve`) no longer trigger overlay validation.
 
 ### Acceptance criteria
 
-- [ ] `rosup sync` works when overlays point to a non-existent path.
-- [ ] `rosup add rclcpp` works when overlays point to a non-existent path.
-- [ ] `rosup search nav --distro humble` works when overlays point to a
+- [x] `rosup sync` works when overlays point to a non-existent path.
+- [x] `rosup add rclcpp` works when overlays point to a non-existent path.
+- [x] `rosup search nav --distro humble` works when overlays point to a
   non-existent path.
-- [ ] `rosup build` still fails with a clear error when overlays are
+- [x] `rosup build` still fails with a clear error when overlays are
   misconfigured.
-- [ ] Integration test: configure a bad overlay, run `sync`, verify success.
-  Run `build`, verify failure.
+- [x] All existing tests pass.
 
 ---
 

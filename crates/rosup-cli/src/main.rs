@@ -216,13 +216,6 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    // Best-effort: load overlays from the nearest rosup.toml and apply them to
-    // the current process env before dispatching any subcommand. This makes
-    // ROS_DISTRO, AMENT_PREFIX_PATH, etc. available to all commands — not just
-    // build/test — so search, clone, and resolve also see the right distro
-    // without requiring ros-distro in the config.
-    let overlay_env = apply_overlays_from_cwd()?;
-
     match cli.command {
         Command::New {
             name,
@@ -273,13 +266,12 @@ fn main() -> Result<()> {
             rebuild_deps,
             release,
             debug,
-            &overlay_env,
         ),
         Command::Test {
             packages,
             retest_until_pass,
             no_resolve,
-        } => cmd_test(packages, retest_until_pass, no_resolve, &overlay_env),
+        } => cmd_test(packages, retest_until_pass, no_resolve),
         Command::Clean {
             all,
             deps,
@@ -662,16 +654,17 @@ fn cmd_build(
     rebuild_deps: bool,
     release: bool,
     debug: bool,
-    overlay_env: &HashMap<String, String>,
 ) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd)?;
     let project_store = ProjectStore::open(&project.root);
 
+    let overlay_env = apply_overlays_from_cwd()?;
+
     // Phase 0: warn if base ROS environment is not sourced.
     builder::check_ros_env(
         project.config.resolve.ros_distro.as_deref(),
-        &overlay::ament_prefix_path(overlay_env),
+        &overlay::ament_prefix_path(&overlay_env),
     );
 
     // Phase 1: resolve deps and clone source packages.
@@ -686,7 +679,7 @@ fn cmd_build(
     }
 
     // Phase 2: build the dep layer from source-pulled worktrees.
-    builder::build_dep_layer(&project.root, &project_store, rebuild_deps, overlay_env)
+    builder::build_dep_layer(&project.root, &project_store, rebuild_deps, &overlay_env)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     // Phase 3: build the user workspace.
@@ -702,7 +695,7 @@ fn cmd_build(
         &project_store,
         &project.config.build,
         &opts,
-        overlay_env,
+        &overlay_env,
     )
     .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
@@ -715,15 +708,16 @@ fn cmd_test(
     packages: Vec<String>,
     retest_until_pass: Option<usize>,
     no_resolve: bool,
-    overlay_env: &HashMap<String, String>,
 ) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd)?;
     let project_store = ProjectStore::open(&project.root);
 
+    let overlay_env = apply_overlays_from_cwd()?;
+
     builder::check_ros_env(
         project.config.resolve.ros_distro.as_deref(),
-        &overlay::ament_prefix_path(overlay_env),
+        &overlay::ament_prefix_path(&overlay_env),
     );
 
     if !no_resolve {
@@ -745,7 +739,7 @@ fn cmd_test(
         &project_store,
         &project.config.test,
         &opts,
-        overlay_env,
+        &overlay_env,
     )
     .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 

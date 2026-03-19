@@ -95,25 +95,12 @@ before decompressing. A 404 produces:
 
 ---
 
-## KI-009 — Overlay validation is fatal for all commands
+## ~~KI-009 — Overlay validation is fatal for all commands~~ CLOSED
 
-**Symptom:** If any configured overlay path lacks `setup.sh` (e.g. the
-overlay is not installed on this machine), **all** rosup commands fail —
-including `search`, `sync`, `add`, and other commands that do not need
-overlays.
-
-**Root cause:** `apply_overlays_from_cwd()` runs eagerly at startup for every
-command and calls `build_env()`, which returns a hard error for missing
-`setup.sh`.
-
-**Impact:** Medium. A `rosup.toml` committed to a shared repo with
-`overlays = ["/opt/autoware/1.5.0"]` breaks rosup for anyone who has not
-installed the Autoware binary packages.
-
-**Workaround:** Remove or comment out the overlay entry.
-
-**Planned fix:** Either make overlay errors non-fatal for commands that don't
-need them, or downgrade to a warning.
+**Fixed in Phase 9.3.** Overlay activation moved out of startup into
+`cmd_build` and `cmd_test` only. Non-build commands (`search`, `sync`, `add`,
+`remove`, `clean`, `resolve`, `init`, `clone`) no longer trigger overlay
+validation.
 
 ---
 
