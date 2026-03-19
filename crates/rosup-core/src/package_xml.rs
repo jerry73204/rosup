@@ -13,8 +13,10 @@ pub enum PackageXmlError {
     Parse {
         path: String,
         #[source]
-        source: quick_xml::DeError,
+        source: quick_xml::Error,
     },
+    #[error("package.xml at {path} is missing required field `{field}`")]
+    MissingField { path: String, field: &'static str },
 }
 
 /// Parsed representation of a ROS package.xml (format 3).
@@ -65,38 +67,6 @@ impl Dependencies {
     }
 }
 
-// ── XML deserialization helpers ──────────────────────────────────────────────
-
-/// Intermediate structure that maps directly onto the package.xml XML schema.
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename = "package")]
-struct RawPackage {
-    name: String,
-    version: String,
-    description: String,
-    #[serde(rename = "depend", default)]
-    depend: Vec<String>,
-    #[serde(rename = "build_depend", default)]
-    build_depend: Vec<String>,
-    #[serde(rename = "build_export_depend", default)]
-    build_export_depend: Vec<String>,
-    #[serde(rename = "buildtool_depend", default)]
-    buildtool_depend: Vec<String>,
-    #[serde(rename = "exec_depend", default)]
-    exec_depend: Vec<String>,
-    #[serde(rename = "test_depend", default)]
-    test_depend: Vec<String>,
-    #[serde(rename = "doc_depend", default)]
-    doc_depend: Vec<String>,
-    #[serde(rename = "export", default)]
-    export: Option<RawExport>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct RawExport {
-    build_type: Option<String>,
-}
-
 pub fn parse_file(path: &Path) -> Result<PackageManifest, PackageXmlError> {
     let content = std::fs::read_to_string(path).map_err(|e| PackageXmlError::Io {
         path: path.display().to_string(),
@@ -105,26 +75,97 @@ pub fn parse_file(path: &Path) -> Result<PackageManifest, PackageXmlError> {
     parse_str(&content, path)
 }
 
+/// Parse a package.xml string using quick_xml's event-based reader.
+///
+/// Using the event-based API (rather than serde deserialization) correctly
+/// handles interleaved repeated sibling elements such as:
+///
+/// ```xml
+/// <depend>rclcpp</depend>
+/// <exec_depend>sensor_msgs</exec_depend>
+/// <depend>tf2</depend>   <!-- second <depend> would fail with serde -->
+/// ```
 pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlError> {
-    let raw: RawPackage = quick_xml::de::from_str(xml).map_err(|e| PackageXmlError::Parse {
-        path: path.display().to_string(),
+    use quick_xml::events::Event;
+
+    let path_str = path.display().to_string();
+    let map_err = |e| PackageXmlError::Parse {
+        path: path_str.clone(),
         source: e,
-    })?;
+    };
+
+    let mut reader = quick_xml::Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+
+    let mut name: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut description: Option<String> = None;
+    let mut build_type: Option<String> = None;
+    let mut deps = Dependencies::default();
+
+    // Stack of open element names so we know the current path.
+    // We only need to track depth-1 tags and `export > build_type`.
+    let mut tag_stack: Vec<String> = Vec::new();
+
+    loop {
+        match reader.read_event().map_err(map_err)? {
+            Event::Start(e) | Event::Empty(e) => {
+                let tag = std::str::from_utf8(e.name().as_ref())
+                    .unwrap_or("")
+                    .to_owned();
+                tag_stack.push(tag);
+            }
+            Event::End(_) => {
+                tag_stack.pop();
+            }
+            Event::Text(e) => {
+                let text = e.unescape().map_err(map_err)?.into_owned();
+                if text.is_empty() {
+                    continue;
+                }
+                match tag_stack.as_slice() {
+                    [.., parent, current] => {
+                        if parent == "export" && current == "build_type" {
+                            build_type = Some(text);
+                            continue;
+                        }
+                        match current.as_str() {
+                            "name" => name = Some(text),
+                            "version" => version = Some(text),
+                            "description" => description = Some(text),
+                            "depend" => deps.depend.push(text),
+                            "build_depend" => deps.build_depend.push(text),
+                            "build_export_depend" => deps.build_export_depend.push(text),
+                            "buildtool_depend" => deps.buildtool_depend.push(text),
+                            "exec_depend" => deps.exec_depend.push(text),
+                            "test_depend" => deps.test_depend.push(text),
+                            "doc_depend" => deps.doc_depend.push(text),
+                            _ => {}
+                        }
+                    }
+                    [current] => match current.as_str() {
+                        "name" => name = Some(text),
+                        "version" => version = Some(text),
+                        "description" => description = Some(text),
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
 
     Ok(PackageManifest {
-        name: raw.name,
-        version: raw.version,
-        description: raw.description,
-        build_type: raw.export.and_then(|e| e.build_type),
-        deps: Dependencies {
-            depend: raw.depend,
-            build_depend: raw.build_depend,
-            build_export_depend: raw.build_export_depend,
-            buildtool_depend: raw.buildtool_depend,
-            exec_depend: raw.exec_depend,
-            test_depend: raw.test_depend,
-            doc_depend: raw.doc_depend,
-        },
+        name: name.ok_or_else(|| PackageXmlError::MissingField {
+            path: path_str.clone(),
+            field: "name",
+        })?,
+        version: version.unwrap_or_default(),
+        description: description.unwrap_or_default(),
+        build_type,
+        deps,
     })
 }
 
@@ -161,5 +202,16 @@ mod tests {
         let all = manifest.deps.all();
         assert_eq!(all.iter().filter(|&&d| d == "rclcpp").count(), 1);
         assert!(all.contains(&"sensor_msgs"));
+    }
+
+    #[test]
+    fn interleaved_repeated_depend_elements() {
+        let manifest = parse_str(
+            &fixture("package_xml/interleaved_depend.xml"),
+            &dummy_path(),
+        )
+        .unwrap();
+        assert_eq!(manifest.deps.depend, vec!["rclcpp", "tf2"]);
+        assert_eq!(manifest.deps.exec_depend, vec!["sensor_msgs"]);
     }
 }

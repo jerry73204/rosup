@@ -215,29 +215,14 @@ mod tests {
         assert_eq!(members[1].name, "pkg_b");
     }
 
-    fn make_ws_with_packages(root: &std::path::Path, pkg_names: &[&str]) {
-        for &name in pkg_names {
-            let dir = root.join(name);
-            fs::create_dir_all(&dir).unwrap();
-            // Minimal package.xml.
-            fs::write(
-                dir.join("package.xml"),
-                format!(
-                    "<?xml version=\"1.0\"?>\n<package format=\"3\"><name>{name}</name>\
-                     <version>0.0.0</version><description>d</description>\
-                     <maintainer email=\"a@b.c\">A</maintainer>\
-                     <license>MIT</license></package>\n"
-                ),
-            )
-            .unwrap();
-        }
-    }
-
     #[test]
     fn auto_discovery_finds_packages() {
         let tmp = TempDir::new().unwrap();
         let src = tmp.path().join("src");
-        make_ws_with_packages(&src, &["pkg_a", "pkg_b"]);
+        fs::create_dir_all(src.join("pkg_a")).unwrap();
+        fs::create_dir_all(src.join("pkg_b")).unwrap();
+        copy_fixture("package_xml/pkg_a.xml", &src.join("pkg_a"), "package.xml");
+        copy_fixture("package_xml/pkg_b.xml", &src.join("pkg_b"), "package.xml");
 
         fs::write(tmp.path().join("rosup.toml"), "[workspace]\n").unwrap();
 
@@ -254,7 +239,14 @@ mod tests {
     fn auto_discovery_respects_exclude() {
         let tmp = TempDir::new().unwrap();
         let src = tmp.path().join("src");
-        make_ws_with_packages(&src, &["pkg_a", "experimental_pkg"]);
+        fs::create_dir_all(src.join("pkg_a")).unwrap();
+        fs::create_dir_all(src.join("experimental_pkg")).unwrap();
+        copy_fixture("package_xml/pkg_a.xml", &src.join("pkg_a"), "package.xml");
+        copy_fixture(
+            "package_xml/experimental_pkg.xml",
+            &src.join("experimental_pkg"),
+            "package.xml",
+        );
 
         fs::write(
             tmp.path().join("rosup.toml"),
@@ -273,18 +265,12 @@ mod tests {
     fn glob_star_is_single_level() {
         let tmp = TempDir::new().unwrap();
         let src = tmp.path().join("src");
-        make_ws_with_packages(&src, &["pkg_a"]);
         // pkg nested two levels deep — should NOT be found with `src/*`.
         let nested = src.join("sub").join("nested_pkg");
+        fs::create_dir_all(src.join("pkg_a")).unwrap();
         fs::create_dir_all(&nested).unwrap();
-        fs::write(
-            nested.join("package.xml"),
-            "<?xml version=\"1.0\"?>\n<package format=\"3\"><name>nested_pkg</name>\
-             <version>0.0.0</version><description>d</description>\
-             <maintainer email=\"a@b.c\">A</maintainer>\
-             <license>MIT</license></package>\n",
-        )
-        .unwrap();
+        copy_fixture("package_xml/pkg_a.xml", &src.join("pkg_a"), "package.xml");
+        copy_fixture("package_xml/nested_pkg.xml", &nested, "package.xml");
 
         fs::write(
             tmp.path().join("rosup.toml"),
@@ -303,17 +289,11 @@ mod tests {
     fn glob_double_star_is_recursive() {
         let tmp = TempDir::new().unwrap();
         let src = tmp.path().join("src");
-        make_ws_with_packages(&src, &["pkg_a"]);
         let nested = src.join("sub").join("nested_pkg");
+        fs::create_dir_all(src.join("pkg_a")).unwrap();
         fs::create_dir_all(&nested).unwrap();
-        fs::write(
-            nested.join("package.xml"),
-            "<?xml version=\"1.0\"?>\n<package format=\"3\"><name>nested_pkg</name>\
-             <version>0.0.0</version><description>d</description>\
-             <maintainer email=\"a@b.c\">A</maintainer>\
-             <license>MIT</license></package>\n",
-        )
-        .unwrap();
+        copy_fixture("package_xml/pkg_a.xml", &src.join("pkg_a"), "package.xml");
+        copy_fixture("package_xml/nested_pkg.xml", &nested, "package.xml");
 
         fs::write(
             tmp.path().join("rosup.toml"),
