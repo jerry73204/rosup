@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use color_eyre::eyre::{Result, WrapErr};
 use rosup_core::{
     builder::{self, BuildOptions, CleanOptions, TestOptions},
@@ -186,6 +186,11 @@ enum Command {
         #[arg(long)]
         refresh: bool,
     },
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for (bash, zsh, fish, elvish, powershell)
+        shell: clap_complete::Shell,
+    },
     /// Remove build artifacts
     Clean {
         /// Also remove install/ (user workspace)
@@ -291,6 +296,10 @@ fn main() -> Result<()> {
             distro,
             limit,
         } => cmd_search(query, distro, limit),
+        Command::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "rosup", &mut std::io::stdout());
+            Ok(())
+        }
         Command::Run { .. } => todo!("rosup run"),
         Command::Launch { .. } => todo!("rosup launch"),
     }

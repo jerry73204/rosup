@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 rosup-core.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 color-eyre.workspace = true
 eyre.workspace = true
 glob.workspace = true
