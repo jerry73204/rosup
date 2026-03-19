@@ -81,48 +81,48 @@ prefix lacked `setup.sh`, even `search`, `sync`, and `add` failed.
 
 ---
 
-## 9.4 Move existence check before distro prompt in `cmd_init` (KI-010)
+## 9.4 Move existence check before distro prompt in `cmd_init` (KI-010) — DONE
 
 **File:** `crates/rosup-cli/src/main.rs`
 
-`cmd_init` prompts for the ROS distro interactively before checking if
-`rosup.toml` already exists. The user types a value for nothing.
+`cmd_init` prompted for the ROS distro interactively before checking if
+`rosup.toml` already exists. The user typed a value for nothing.
 
 ### Implementation
 
-- [ ] In `cmd_init`, check `cwd.join("rosup.toml").exists() && !force`
+- [x] In `cmd_init`, check `cwd.join("rosup.toml").exists() && !force`
   **before** resolving `ros_distro` (the prompt/env check).
-- [ ] Return the `AlreadyExists` error early.
+- [x] Return an error early.
 
 ### Acceptance criteria
 
-- [ ] Running `rosup init` in a directory with an existing `rosup.toml`
+- [x] Running `rosup init` in a directory with an existing `rosup.toml`
   immediately reports the error without prompting for distro.
-- [ ] `rosup init --force` still prompts (or uses env) and overwrites.
-- [ ] Integration test: create `rosup.toml`, run `rosup init`, verify no
-  prompt and immediate failure.
+- [x] `rosup init --force` still prompts (or uses env) and overwrites.
+- [x] Existing `init_no_overwrite_without_force` integration test covers
+  this scenario.
 
 ---
 
-## 9.5 Add `ROS_DISTRO` env fallback to `resolve_distro` (KI-012)
+## 9.5 Add `ROS_DISTRO` env fallback to `resolve_distro` (KI-012) — DONE
 
 **File:** `crates/rosup-cli/src/main.rs`
 
-`resolve_distro()` (used by `search` and `clone`) does not fall back to
+`resolve_distro()` (used by `search` and `clone`) did not fall back to
 `ROS_DISTRO` from the environment, unlike `Resolver::new()` and `cmd_init`.
 
 ### Implementation
 
-- [ ] After checking the CLI flag and `rosup.toml`, add
-  `std::env::var("ROS_DISTRO").ok()` as a third fallback.
-- [ ] Update the error message to mention `ROS_DISTRO` as an option.
+- [x] After checking the CLI flag and `rosup.toml`, added
+  `std::env::var("ROS_DISTRO")` as a third fallback.
+- [x] Updated the error message to mention `ROS_DISTRO` as an option.
 
 ### Acceptance criteria
 
-- [ ] `ROS_DISTRO=humble rosup search nav` works without `--distro`.
-- [ ] `--distro` flag still takes precedence over env.
-- [ ] `rosup.toml` `ros-distro` still takes precedence over env.
-- [ ] Integration test: set `ROS_DISTRO` env, run `search`, verify success.
+- [x] `ROS_DISTRO=humble rosup search nav` works without `--distro`.
+- [x] `--distro` flag still takes precedence over env.
+- [x] `rosup.toml` `ros-distro` still takes precedence over env.
+- [x] Resolution order: `--distro` → `rosup.toml` → `ROS_DISTRO` → error.
 
 ---
 

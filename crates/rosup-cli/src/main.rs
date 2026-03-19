@@ -423,6 +423,14 @@ fn cmd_init(
     if lock && !force_workspace {
         eprintln!("warning: --lock has no effect without --workspace");
     }
+    // Check existence before prompting so users don't type a distro for nothing.
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    if cwd.join("rosup.toml").exists() && !force {
+        color_eyre::eyre::bail!(
+            "rosup.toml already exists at {}. Use --force to overwrite.",
+            cwd.join("rosup.toml").display()
+        );
+    }
     let ros_distro = match ros_distro {
         Some(d) => Some(d),
         None => match std::env::var("ROS_DISTRO") {
@@ -430,7 +438,6 @@ fn cmd_init(
             _ => Some(prompt_ros_distro()?),
         },
     };
-    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let result = init::init(&cwd, force_workspace, lock, ros_distro.as_deref(), force)?;
     let mode_label = match result.mode {
         InitMode::Package => "package",
@@ -920,11 +927,8 @@ fn resolve_package_xml(package: Option<String>) -> Result<std::path::PathBuf> {
     Ok(pkg_xml)
 }
 
-/// Resolve the ROS distro for commands that accept `--distro`: CLI flag →
-/// ros-distro in rosup.toml → error.
-///
-/// `ROS_DISTRO` from the environment is intentionally not consulted: the distro
-/// must be explicit either on the command line or in the project manifest.
+/// Resolve the ROS distro for commands that accept `--distro`:
+/// CLI flag → ros-distro in rosup.toml → `ROS_DISTRO` env → error.
 fn resolve_distro(distro: Option<String>) -> Result<String> {
     if let Some(d) = distro {
         return Ok(d);
@@ -935,8 +939,13 @@ fn resolve_distro(distro: Option<String>) -> Result<String> {
     {
         return Ok(d);
     }
+    if let Ok(d) = std::env::var("ROS_DISTRO")
+        && !d.is_empty()
+    {
+        return Ok(d);
+    }
     color_eyre::eyre::bail!(
-        "no ROS distro specified — pass --distro or add ros-distro to [resolve] in rosup.toml"
+        "no ROS distro specified — pass --distro, set ROS_DISTRO, or add ros-distro to [resolve] in rosup.toml"
     )
 }
 

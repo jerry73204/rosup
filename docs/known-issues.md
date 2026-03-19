@@ -104,18 +104,10 @@ validation.
 
 ---
 
-## KI-010 — `rosup init` prompts before checking if `rosup.toml` exists
+## ~~KI-010 — `rosup init` prompts before checking if `rosup.toml` exists~~ CLOSED
 
-**Symptom:** Running `rosup init` (without `--ros-distro`) interactively
-prompts for the ROS distribution, then reports "`rosup.toml` already exists".
-The user typed a value for nothing.
-
-**Impact:** Low. Minor UX annoyance.
-
-**Workaround:** Always pass `--ros-distro` or set `ROS_DISTRO`.
-
-**Planned fix:** Move the existence check before the distro prompt in
-`cmd_init`.
+**Fixed in Phase 9.4.** The existence check now runs before the distro
+prompt in `cmd_init`.
 
 ---
 
@@ -135,16 +127,8 @@ there first.
 
 ---
 
-## KI-012 — `search` and `clone` do not fall back to `ROS_DISTRO` env
+## ~~KI-012 — `search` and `clone` do not fall back to `ROS_DISTRO` env~~ CLOSED
 
-**Symptom:** `ROS_DISTRO=humble rosup search nav` fails with "no ROS distro
-specified" even though the environment variable is set. `init` and `resolve`
-do fall back to `ROS_DISTRO`.
-
-**Impact:** Low. Inconsistent UX across commands.
-
-**Workaround:** Pass `--distro humble` explicitly, or add `ros-distro` to
-`rosup.toml`.
-
-**Planned fix:** Add `ROS_DISTRO` env fallback to `resolve_distro()`,
-matching the behavior of the resolver.
+**Fixed in Phase 9.5.** `resolve_distro()` now falls back to `ROS_DISTRO`
+env after checking `--distro` and `rosup.toml`. All commands now have
+consistent distro resolution.
