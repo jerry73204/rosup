@@ -59,6 +59,10 @@ enum Command {
         /// Write an explicit locked member list (only with --workspace)
         #[arg(long)]
         lock: bool,
+        /// ROS distribution (e.g. humble, jazzy); auto-detected from ROS_DISTRO
+        /// env var or prompted interactively if not provided
+        #[arg(long)]
+        ros_distro: Option<String>,
         /// Overwrite an existing rosup.toml
         #[arg(long)]
         force: bool,
@@ -231,8 +235,9 @@ fn main() -> Result<()> {
         Command::Init {
             workspace,
             lock,
+            ros_distro,
             force,
-        } => cmd_init(workspace, lock, force),
+        } => cmd_init(workspace, lock, ros_distro, force),
         Command::Sync {
             dry_run,
             check,
@@ -314,8 +319,21 @@ fn apply_overlays_from_cwd() -> Result<HashMap<String, String>> {
     let Ok(project) = Project::load_from(&cwd) else {
         return Ok(HashMap::new());
     };
-    let env = overlay::build_env(&project.config.resolve.overlays)
-        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    // Use configured overlays; if none are listed, auto-source the workspace's
+    // own Colcon install/ directory when it exists (standard colcon layout).
+    let overlays = if project.config.resolve.overlays.is_empty() {
+        let install_setup = project.root.join("install").join("setup.sh");
+        if install_setup.exists() {
+            vec![project.root.join("install")]
+        } else {
+            vec![]
+        }
+    } else {
+        project.config.resolve.overlays.clone()
+    };
+
+    let env = overlay::build_env(&overlays).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
     for (key, val) in &env {
         // Safety: single-threaded at this point, no concurrent env reads.
         unsafe { std::env::set_var(key, val) };
@@ -404,12 +422,24 @@ fn cmd_new(
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
-fn cmd_init(force_workspace: bool, lock: bool, force: bool) -> Result<()> {
+fn cmd_init(
+    force_workspace: bool,
+    lock: bool,
+    ros_distro: Option<String>,
+    force: bool,
+) -> Result<()> {
     if lock && !force_workspace {
         eprintln!("warning: --lock has no effect without --workspace");
     }
+    let ros_distro = match ros_distro {
+        Some(d) => Some(d),
+        None => match std::env::var("ROS_DISTRO") {
+            Ok(d) if !d.is_empty() => Some(d),
+            _ => Some(prompt_ros_distro()?),
+        },
+    };
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
-    let result = init::init(&cwd, force_workspace, lock, force)?;
+    let result = init::init(&cwd, force_workspace, lock, ros_distro.as_deref(), force)?;
     let mode_label = match result.mode {
         InitMode::Package => "package",
         InitMode::Workspace => "workspace (auto-discovery)",
@@ -818,7 +848,8 @@ fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
     let pkg_xml_count = count_package_xmls(&dest);
     let force_workspace = pkg_xml_count > 1;
 
-    init::init(&dest, force_workspace, false, false).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    init::init(&dest, force_workspace, false, None, false)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     println!("Cloned `{}` repository to {}", src.repo, dest.display());
     Ok(())
@@ -829,7 +860,9 @@ fn cmd_clone(package_name: String, distro: Option<String>) -> Result<()> {
 /// Collect all unique dependency names across all workspace members.
 ///
 /// In package mode, reads the single `package.xml` at the project root.
-/// In workspace mode, aggregates deps from all discovered member packages.
+/// In workspace mode, aggregates deps from all discovered member packages,
+/// excluding deps whose names match workspace member packages (those are
+/// built from source by colcon as part of the same workspace).
 fn collect_dep_names(project: &Project) -> Result<Vec<String>> {
     let manifests = if project.config.workspace.is_some() {
         project.members()?
@@ -845,10 +878,18 @@ fn collect_dep_names(project: &Project) -> Result<Vec<String>> {
         }
     };
 
+    // In workspace mode, deps that are names of workspace members are resolved
+    // by colcon building the workspace — don't pass them to the external resolver.
+    let member_names: std::collections::HashSet<&str> =
+        manifests.iter().map(|m| m.name.as_str()).collect();
+
     let mut dep_names: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for pkg in &manifests {
         for dep in pkg.deps.all() {
+            if member_names.contains(dep) {
+                continue;
+            }
             if seen.insert(dep.to_owned()) {
                 dep_names.push(dep.to_owned());
             }

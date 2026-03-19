@@ -111,7 +111,12 @@ pub struct Resolver {
 
 impl Resolver {
     pub fn new(config: ResolveConfig, project_root: &Path) -> Result<Self, ResolverError> {
-        let distro = config.ros_distro.clone().ok_or(ResolverError::NoDistro)?;
+        // Prefer explicit config; fall back to the sourced ROS environment.
+        let distro = config
+            .ros_distro
+            .clone()
+            .or_else(|| std::env::var("ROS_DISTRO").ok())
+            .ok_or(ResolverError::NoDistro)?;
 
         let global = GlobalStore::open()?;
         global.ensure()?;

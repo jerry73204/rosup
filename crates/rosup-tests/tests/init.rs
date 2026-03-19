@@ -13,7 +13,7 @@ fn init_package_mode() {
 
     env()
         .cmd(dir.path())
-        .args(["init"])
+        .args(["init", "--ros-distro", "humble"])
         .assert()
         .success()
         .stdout(predicates::str::contains("package"));
@@ -21,6 +21,8 @@ fn init_package_mode() {
     let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
     assert!(toml.contains("[package]"));
     assert!(toml.contains("name = \"my_pkg\""));
+    assert!(toml.contains("ros-distro = \"humble\""));
+    assert!(toml.contains("\"/opt/ros/humble\""));
 }
 
 #[test]
@@ -29,7 +31,7 @@ fn init_workspace_mode_auto_discovery() {
 
     env()
         .cmd(dir.path())
-        .args(["init", "--workspace"])
+        .args(["init", "--workspace", "--ros-distro", "jazzy"])
         .assert()
         .success()
         .stdout(predicates::str::contains("auto-discovery"));
@@ -38,6 +40,7 @@ fn init_workspace_mode_auto_discovery() {
     assert!(toml.contains("[workspace]"));
     // Auto-discovery mode must NOT write a members key.
     assert!(!toml.contains("members"));
+    assert!(toml.contains("ros-distro = \"jazzy\""));
 }
 
 #[test]
@@ -52,7 +55,7 @@ fn init_workspace_mode_locked() {
 
     env()
         .cmd(dir.path())
-        .args(["init", "--workspace", "--lock"])
+        .args(["init", "--workspace", "--lock", "--ros-distro", "humble"])
         .assert()
         .success()
         .stdout(predicates::str::contains("locked"));
@@ -61,6 +64,7 @@ fn init_workspace_mode_locked() {
     assert!(toml.contains("[workspace]"));
     assert!(toml.contains("pkg_a"));
     assert!(toml.contains("pkg_b"));
+    assert!(toml.contains("ros-distro = \"humble\""));
 }
 
 #[test]
@@ -68,7 +72,11 @@ fn init_adds_gitignore_entry() {
     let dir = TempDir::new().unwrap();
     write_package_xml(dir.path(), "my_pkg", &[]);
 
-    env().cmd(dir.path()).args(["init"]).assert().success();
+    env()
+        .cmd(dir.path())
+        .args(["init", "--ros-distro", "humble"])
+        .assert()
+        .success();
 
     let gitignore = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
     assert!(gitignore.lines().any(|l| l.trim() == ".rosup/"));
@@ -82,7 +90,7 @@ fn init_no_overwrite_without_force() {
 
     env()
         .cmd(dir.path())
-        .args(["init"])
+        .args(["init", "--ros-distro", "humble"])
         .assert()
         .failure()
         .stderr(predicates::str::contains("already exists"));
@@ -96,7 +104,7 @@ fn init_force_overwrites() {
 
     env()
         .cmd(dir.path())
-        .args(["init", "--force"])
+        .args(["init", "--ros-distro", "humble", "--force"])
         .assert()
         .success();
 

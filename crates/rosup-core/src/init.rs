@@ -42,11 +42,14 @@ pub enum InitMode {
 /// - `force_workspace`: create a workspace manifest instead of a package one.
 /// - `lock`: when `force_workspace` is true, populate an explicit `members`
 ///   list via `colcon_scan` instead of writing an empty `[workspace]`.
+/// - `ros_distro`: when `Some`, append a `[resolve]` section with `ros-distro`
+///   and a base overlay for `/opt/ros/<distro>`.
 /// - `force`: overwrite an existing `rosup.toml`.
 pub fn init(
     dir: &Path,
     force_workspace: bool,
     lock: bool,
+    ros_distro: Option<&str>,
     force: bool,
 ) -> Result<InitResult, InitError> {
     let rosup_toml = dir.join("rosup.toml");
@@ -73,9 +76,9 @@ pub fn init(
     };
 
     let content = match mode {
-        InitMode::Package => generate_package_toml(dir)?,
-        InitMode::Workspace => "[workspace]\n".to_owned(),
-        InitMode::WorkspaceLocked => generate_locked_workspace_toml(dir)?,
+        InitMode::Package => generate_package_toml(dir, ros_distro)?,
+        InitMode::Workspace => generate_workspace_toml(ros_distro),
+        InitMode::WorkspaceLocked => generate_locked_workspace_toml(dir, ros_distro)?,
     };
 
     std::fs::write(&rosup_toml, content).map_err(|e| InitError::Io {
@@ -91,17 +94,41 @@ pub fn init(
     })
 }
 
-fn generate_package_toml(dir: &Path) -> Result<String, InitError> {
+fn generate_package_toml(dir: &Path, ros_distro: Option<&str>) -> Result<String, InitError> {
     let manifest = package_xml::parse_file(&dir.join("package.xml"))?;
-    Ok(format!("[package]\nname = \"{}\"\n", manifest.name))
+    let mut out = format!("[package]\nname = \"{}\"\n", manifest.name);
+    if let Some(distro) = ros_distro {
+        out.push_str(&resolve_section(distro));
+    }
+    Ok(out)
 }
 
-fn generate_locked_workspace_toml(dir: &Path) -> Result<String, InitError> {
+fn generate_workspace_toml(ros_distro: Option<&str>) -> String {
+    let mut out = "[workspace]\n".to_owned();
+    if let Some(distro) = ros_distro {
+        out.push_str(&resolve_section(distro));
+    }
+    out
+}
+
+fn generate_locked_workspace_toml(
+    dir: &Path,
+    ros_distro: Option<&str>,
+) -> Result<String, InitError> {
     let members = colcon_scan(dir, &[])?;
     if members.is_empty() {
         return Err(InitError::NoMembers(dir.to_owned()));
     }
-    Ok(format_workspace_toml(&members))
+    let mut out = format_workspace_toml(&members);
+    if let Some(distro) = ros_distro {
+        out.push_str(&resolve_section(distro));
+    }
+    Ok(out)
+}
+
+/// Format a `[resolve]` section with `ros-distro` and the base ROS overlay.
+fn resolve_section(distro: &str) -> String {
+    format!("\n[resolve]\nros-distro = \"{distro}\"\noverlays = [\"/opt/ros/{distro}\"]\n")
 }
 
 /// Format a `[workspace]` TOML block with an explicit member list.
@@ -339,7 +366,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
 
-        let result = init(tmp.path(), false, false, false).unwrap();
+        let result = init(tmp.path(), false, false, None, false).unwrap();
         assert_eq!(result.mode, InitMode::Package);
         let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
         assert!(content.contains("[package]"));
@@ -347,11 +374,35 @@ mod tests {
     }
 
     #[test]
+    fn init_package_with_distro_writes_resolve_section() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
+
+        let result = init(tmp.path(), false, false, Some("humble"), false).unwrap();
+        let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
+        assert!(content.contains("[resolve]"));
+        assert!(content.contains("ros-distro = \"humble\""));
+        assert!(content.contains("\"/opt/ros/humble\""));
+    }
+
+    #[test]
+    fn init_workspace_with_distro_writes_resolve_section() {
+        let tmp = TempDir::new().unwrap();
+
+        let result = init(tmp.path(), true, false, Some("jazzy"), false).unwrap();
+        let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
+        assert!(content.contains("[workspace]"));
+        assert!(content.contains("[resolve]"));
+        assert!(content.contains("ros-distro = \"jazzy\""));
+        assert!(content.contains("\"/opt/ros/jazzy\""));
+    }
+
+    #[test]
     fn init_workspace_auto_discovery() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join("src/pkg_a")).unwrap();
 
-        let result = init(tmp.path(), true, false, false).unwrap();
+        let result = init(tmp.path(), true, false, None, false).unwrap();
         assert_eq!(result.mode, InitMode::Workspace);
         let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
         assert!(content.contains("[workspace]"));
@@ -368,7 +419,7 @@ mod tests {
         copy_fixture("package_xml/pkg_a.xml", &pkg_a, "package.xml");
         copy_fixture("package_xml/pkg_b.xml", &pkg_b, "package.xml");
 
-        let result = init(tmp.path(), true, true, false).unwrap();
+        let result = init(tmp.path(), true, true, None, false).unwrap();
         assert_eq!(result.mode, InitMode::WorkspaceLocked);
         let content = fs::read_to_string(&result.rosup_toml_path).unwrap();
         assert!(content.contains("[workspace]"));
@@ -382,7 +433,7 @@ mod tests {
         fs::create_dir_all(tmp.path().join("src/pkg_a")).unwrap();
 
         // Without force_workspace, src/ alone is not enough — must be explicit.
-        let err = init(tmp.path(), false, false, false).unwrap_err();
+        let err = init(tmp.path(), false, false, None, false).unwrap_err();
         assert!(matches!(err, InitError::NoPackageXml(_)));
     }
 
@@ -392,7 +443,7 @@ mod tests {
         copy_fixture("package_xml/stub_pkg.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join("rosup.toml"), "[package]\nname = \"p\"\n").unwrap();
 
-        let err = init(tmp.path(), false, false, false).unwrap_err();
+        let err = init(tmp.path(), false, false, None, false).unwrap_err();
         assert!(matches!(err, InitError::AlreadyExists(_)));
     }
 
@@ -402,7 +453,7 @@ mod tests {
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join("rosup.toml"), "[package]\nname = \"old\"\n").unwrap();
 
-        init(tmp.path(), false, false, true).unwrap();
+        init(tmp.path(), false, false, None, true).unwrap();
         let content = fs::read_to_string(tmp.path().join("rosup.toml")).unwrap();
         assert!(content.contains("name = \"my_pkg\""));
     }
@@ -410,7 +461,7 @@ mod tests {
     #[test]
     fn init_errors_with_no_package_xml() {
         let tmp = TempDir::new().unwrap();
-        let err = init(tmp.path(), false, false, false).unwrap_err();
+        let err = init(tmp.path(), false, false, None, false).unwrap_err();
         assert!(matches!(err, InitError::NoPackageXml(_)));
     }
 
@@ -419,7 +470,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
 
-        init(tmp.path(), false, false, false).unwrap();
+        init(tmp.path(), false, false, None, false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(content.lines().any(|l| l.trim() == ".rosup/"));
@@ -431,7 +482,7 @@ mod tests {
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join(".gitignore"), "build/\ninstall/\n").unwrap();
 
-        init(tmp.path(), false, false, false).unwrap();
+        init(tmp.path(), false, false, None, false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(content.contains("build/"));
@@ -445,7 +496,7 @@ mod tests {
         copy_fixture("package_xml/with_build_type.xml", tmp.path(), "package.xml");
         fs::write(tmp.path().join(".gitignore"), ".rosup/\n").unwrap();
 
-        init(tmp.path(), false, false, false).unwrap();
+        init(tmp.path(), false, false, None, false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert_eq!(content.lines().filter(|l| l.trim() == ".rosup/").count(), 1);
@@ -453,13 +504,12 @@ mod tests {
 
     // ── colcon_scan ───────────────────────────────────────────────────────────
 
-    fn make_pkg(dir: &Path, name: &str) {
+    /// Create a directory with a `package.xml` fixture inside it.
+    /// Content is taken from the stub fixture; the name arg is unused by
+    /// colcon_scan (it only checks file existence), but kept for readability.
+    fn make_pkg(dir: &Path, _name: &str) {
         fs::create_dir_all(dir).unwrap();
-        fs::write(
-            dir.join("package.xml"),
-            format!("<package><name>{name}</name></package>"),
-        )
-        .unwrap();
+        copy_fixture("package_xml/stub_pkg.xml", dir, "package.xml");
     }
 
     #[test]
