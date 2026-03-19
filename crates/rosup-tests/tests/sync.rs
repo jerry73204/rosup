@@ -116,3 +116,21 @@ fn sync_auto_discovery_without_lock_is_noop() {
     let toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
     assert_eq!(toml, original, "file must not be modified");
 }
+
+/// Misconfigured overlays must not block non-build commands like sync.
+#[test]
+fn sync_succeeds_with_bad_overlay() {
+    let dir = TempDir::new().unwrap();
+    add_pkg(dir.path(), "src/pkg_a", "pkg_a");
+    make_locked_workspace(dir.path(), &["src/pkg_a"]);
+    // Append a bad overlay to the existing rosup.toml.
+    let mut toml = fs::read_to_string(dir.path().join("rosup.toml")).unwrap();
+    toml.push_str("\n[resolve]\noverlays = [\"/nonexistent/overlay/path\"]\n");
+    fs::write(dir.path().join("rosup.toml"), &toml).unwrap();
+
+    env()
+        .cmd(dir.path())
+        .args(["sync", "--check"])
+        .assert()
+        .success();
+}

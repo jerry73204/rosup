@@ -1,4 +1,4 @@
-use rosup_tests::project::write_package_xml;
+use rosup_tests::project::{write_package_xml, write_rosup_toml};
 use rosup_tests::{PackageProject, TestEnv};
 
 /// Create a package project with a dep and the humble cache in the fake home.
@@ -57,6 +57,46 @@ fn resolve_without_manifest_uses_package_xml() {
         .assert()
         .success()
         .stdout(predicates::str::contains("would resolve solo_pkg"));
+}
+
+/// In a workspace, deps that are sibling member packages should not be passed
+/// to the external resolver — colcon builds them from source.
+#[test]
+fn workspace_sibling_deps_excluded_from_resolve() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let pkg_core = dir.path().join("src/pkg_core");
+    let pkg_launch = dir.path().join("src/pkg_launch");
+    std::fs::create_dir_all(&pkg_core).unwrap();
+    std::fs::create_dir_all(&pkg_launch).unwrap();
+    write_package_xml(&pkg_core, "pkg_core", &[]);
+    // pkg_launch depends on pkg_core (sibling) and rclcpp (external).
+    write_package_xml(&pkg_launch, "pkg_launch", &["pkg_core", "rclcpp"]);
+    write_rosup_toml(
+        dir.path(),
+        "[workspace]\n\n[resolve]\nros-distro = \"humble\"\n",
+    );
+
+    let te = TestEnv::new().with_cache();
+    let output = te
+        .cmd(dir.path())
+        .args(["resolve", "--dry-run"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+
+    // rclcpp (external) should appear in the resolution plan.
+    assert!(
+        stdout.contains("rclcpp"),
+        "external dep rclcpp should be resolved"
+    );
+    // pkg_core (sibling member) should NOT appear — colcon handles it.
+    assert!(
+        !stdout.contains("pkg_core"),
+        "sibling member pkg_core should be excluded from resolver"
+    );
 }
 
 #[test]

@@ -355,7 +355,7 @@ fn update_gitignore(dir: &Path) -> Result<(), InitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::copy_fixture;
+    use crate::test_helpers::{copy_fixture, copy_fixture_dir};
     use std::fs;
     use tempfile::TempDir;
 
@@ -603,6 +603,33 @@ mod tests {
         let exclude = vec![glob::Pattern::new("src/experimental_*").unwrap()];
         let members = colcon_scan(tmp.path(), &exclude).unwrap();
         assert_eq!(members, vec!["src/pkg_a"]);
+    }
+
+    #[test]
+    fn colcon_ignore_blocks_all_nested_packages() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture_dir("workspaces/colcon_ignore_nested", tmp.path());
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/good"]);
+    }
+
+    #[test]
+    fn non_ros_directories_excluded_from_scan() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture_dir("workspaces/mixed_non_ros", tmp.path());
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/pkg_a"]);
+    }
+
+    #[test]
+    fn colcon_scan_results_sorted_lexicographically() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture_dir("workspaces/sort_order", tmp.path());
+
+        let members = colcon_scan(tmp.path(), &[]).unwrap();
+        assert_eq!(members, vec!["src/a_pkg", "src/m_pkg", "src/z_pkg"]);
     }
 
     // ── patch_members ─────────────────────────────────────────────────────────

@@ -117,3 +117,22 @@ fn init_no_package_xml_exits_nonzero() {
     let dir = TempDir::new().unwrap();
     env().cmd(dir.path()).args(["init"]).assert().failure();
 }
+
+/// Verify that `init` checks for existing rosup.toml BEFORE prompting for
+/// the distro. Without --ros-distro and without ROS_DISTRO, if the existence
+/// check runs first the command fails immediately without blocking on stdin.
+#[test]
+fn init_existence_check_before_distro_prompt() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rosup.toml"), "[package]\nname = \"old\"\n").unwrap();
+
+    // No --ros-distro, no ROS_DISTRO in env (TestEnv removes it).
+    // If the existence check ran after the prompt, this would hang on stdin.
+    // Instead it should fail immediately with "already exists".
+    env()
+        .cmd(dir.path())
+        .args(["init"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("already exists"));
+}

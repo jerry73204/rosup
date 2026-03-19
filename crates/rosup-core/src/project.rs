@@ -154,7 +154,7 @@ fn discover_members(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::copy_fixture;
+    use crate::test_helpers::{copy_fixture, copy_fixture_dir};
     use std::fs;
     use tempfile::TempDir;
 
@@ -309,5 +309,41 @@ mod tests {
         let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
         assert!(names.contains(&"pkg_a"));
         assert!(names.contains(&"nested_pkg"));
+    }
+
+    #[test]
+    fn deep_exclude_filters_nested_test_packages_auto_discovery() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture_dir("workspaces/deep_exclude", tmp.path());
+
+        fs::write(
+            tmp.path().join("rosup.toml"),
+            "[workspace]\nexclude = [\"**/tests/**\"]\n",
+        )
+        .unwrap();
+
+        let project = Project::load_at(tmp.path()).unwrap();
+        let members = project.members().unwrap();
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "pkg_a");
+    }
+
+    #[test]
+    fn deep_exclude_filters_nested_test_packages_glob_mode() {
+        let tmp = TempDir::new().unwrap();
+        copy_fixture_dir("workspaces/deep_exclude", tmp.path());
+
+        fs::write(
+            tmp.path().join("rosup.toml"),
+            "[workspace]\nmembers = [\"src/**\"]\nexclude = [\"**/tests/**\"]\n",
+        )
+        .unwrap();
+
+        let project = Project::load_at(tmp.path()).unwrap();
+        let members = project.members().unwrap();
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "pkg_a");
     }
 }

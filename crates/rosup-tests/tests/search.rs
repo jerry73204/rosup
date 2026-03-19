@@ -80,5 +80,21 @@ fn search_missing_distro_exits_nonzero() {
     te.cmd(dir.path())
         .args(["search", "rclcpp"])
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicates::str::contains("ROS_DISTRO"));
+}
+
+/// `ROS_DISTRO` env is consulted as a fallback when no `--distro` flag and
+/// no `rosup.toml` `ros-distro` is set.
+#[test]
+fn search_falls_back_to_ros_distro_env() {
+    let dir = TempDir::new().unwrap();
+    let te = TestEnv::new().with_cache();
+    // TestEnv removes ROS_DISTRO, but we re-add it explicitly.
+    te.cmd(dir.path())
+        .env("ROS_DISTRO", "humble")
+        .args(["search", "rclcpp"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("rclcpp"));
 }
