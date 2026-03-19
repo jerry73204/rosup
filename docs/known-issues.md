@@ -60,17 +60,7 @@ detection — see `docs/features/manifest-discovery.md`.
 
 ## KI-005 — `rosup clone` always clones into `$CWD`
 
-**Symptom:** `rosup clone` clones the repository into the current working
-directory with no option to specify a destination. If the current directory is
-a workspace root, the clone lands at the top level rather than under `src/`.
-
-**Impact:** Low. The user must either `cd src/` first or move the directory
-afterwards.
-
-**Workaround:** Run `rosup clone` from inside `src/`, or move the cloned
-directory manually and run `rosup sync` (once available).
-
-**Planned fix:** Add `--destination <dir>` flag to `rosup clone`.
+Superseded by KI-011. See Phase 9.6 for the `--destination` flag plan.
 
 ---
 
@@ -86,3 +76,114 @@ and `ros2 launch` must be used directly after sourcing the workspace manually.
 manually, then use `ros2 run` / `ros2 launch`.
 
 **Planned fix:** Phase 6 — see `docs/phases/6-run-and-launch.md`.
+
+---
+
+## KI-007 — `rosup add -p` / `rosup remove -p` broken in auto-discovery workspaces
+
+**Symptom:** `rosup add rclcpp -p <pkg>` and `rosup remove rclcpp -p <pkg>`
+always fail with "could not find package.xml for `<pkg>`" when the workspace
+uses auto-discovery (no explicit `members` list).
+
+**Root cause:** `find_member_xml()` in `main.rs` iterates
+`ws.members.iter().flatten()`, which yields nothing when `members` is `None`.
+
+**Impact:** High. Any auto-discovery workspace (the recommended default) cannot
+use the `-p` flag for `add` or `remove`.
+
+**Workaround:** `cd` into the target package directory and run `rosup add` /
+`rosup remove` without `-p`.
+
+**Planned fix:** `find_member_xml()` should call `colcon_scan` or
+`project.members()` when `members` is `None`, the same way `discover_members`
+does in `project.rs`.
+
+---
+
+## KI-008 — Invalid distro name produces a misleading "invalid gzip" error
+
+**Symptom:** `rosup search --distro nonexistent_distro` produces:
+
+```
+failed to decompress cache: invalid gzip header
+```
+
+**Root cause:** `fetch_and_store()` in `rosdistro.rs` downloads from the
+rosdistro GitHub URL without checking the HTTP status code. A 404 response
+returns HTML, which is then fed to `GzDecoder`, causing a gzip error.
+
+**Impact:** Low. Confusing error message; does not corrupt state.
+
+**Workaround:** Use a valid distro name.
+
+**Planned fix:** Check the HTTP status code before decompressing. Return a
+clear error like "distro `<name>` not found in rosdistro index".
+
+---
+
+## KI-009 — Overlay validation is fatal for all commands
+
+**Symptom:** If any configured overlay path lacks `setup.sh` (e.g. the
+overlay is not installed on this machine), **all** rosup commands fail —
+including `search`, `sync`, `add`, and other commands that do not need
+overlays.
+
+**Root cause:** `apply_overlays_from_cwd()` runs eagerly at startup for every
+command and calls `build_env()`, which returns a hard error for missing
+`setup.sh`.
+
+**Impact:** Medium. A `rosup.toml` committed to a shared repo with
+`overlays = ["/opt/autoware/1.5.0"]` breaks rosup for anyone who has not
+installed the Autoware binary packages.
+
+**Workaround:** Remove or comment out the overlay entry.
+
+**Planned fix:** Either make overlay errors non-fatal for commands that don't
+need them, or downgrade to a warning.
+
+---
+
+## KI-010 — `rosup init` prompts before checking if `rosup.toml` exists
+
+**Symptom:** Running `rosup init` (without `--ros-distro`) interactively
+prompts for the ROS distribution, then reports "`rosup.toml` already exists".
+The user typed a value for nothing.
+
+**Impact:** Low. Minor UX annoyance.
+
+**Workaround:** Always pass `--ros-distro` or set `ROS_DISTRO`.
+
+**Planned fix:** Move the existence check before the distro prompt in
+`cmd_init`.
+
+---
+
+## KI-011 — `rosup clone` clones into `$CWD`, no `--destination` flag
+
+**Symptom:** `rosup clone` always clones into the current working directory.
+There is no way to specify a different destination. Users who want to clone
+into `src/` (a common Colcon convention, but not a strict rule) must `cd`
+there first.
+
+**Impact:** Low. Users must `cd` to the desired parent directory first.
+
+**Workaround:** `cd src/ && rosup clone <pkg> --distro <d>`.
+
+**Planned fix:** Add `--destination <dir>` flag to `rosup clone`
+(see Phase 9.6). Supersedes KI-005.
+
+---
+
+## KI-012 — `search` and `clone` do not fall back to `ROS_DISTRO` env
+
+**Symptom:** `ROS_DISTRO=humble rosup search nav` fails with "no ROS distro
+specified" even though the environment variable is set. `init` and `resolve`
+do fall back to `ROS_DISTRO`.
+
+**Impact:** Low. Inconsistent UX across commands.
+
+**Workaround:** Pass `--distro humble` explicitly, or add `ros-distro` to
+`rosup.toml`.
+
+**Planned fix:** Add `ROS_DISTRO` env fallback to `resolve_distro()`,
+matching the behavior of the resolver.
