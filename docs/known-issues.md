@@ -40,21 +40,14 @@ or flags in Bash, Zsh, or Fish.
 
 ---
 
-## KI-004 — No `--manifest-path` flag
+## ~~KI-004 — No `--manifest-path` flag~~ CLOSED
 
-**Symptom:** rosup must be run from within a project directory (or a
-subdirectory of one). There is no way to point rosup at a `rosup.toml` in an
-arbitrary location, unlike `cargo --manifest-path`.
+**Fixed.** Added `--manifest-path` global flag and filesystem boundary
+detection (stops at home directory and filesystem mount boundaries).
 
-The upward directory search also lacks filesystem boundary detection, so rosup
-may inadvertently pick up a `rosup.toml` from an unrelated parent directory.
-
-**Impact:** Low for typical use; medium for scripting and CI.
-
-**Workaround:** `cd` to the project root before running rosup commands.
-
-**Planned fix:** `--manifest-path` global flag and filesystem boundary
-detection — see `docs/features/manifest-discovery.md`.
+```bash
+rosup --manifest-path ~/my_ws/rosup.toml sync --lock --dry-run
+```
 
 ---
 

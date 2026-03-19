@@ -46,6 +46,26 @@ impl Project {
         Self::load_at(&root)
     }
 
+    /// Load a project from an explicit manifest path, or fall back to the
+    /// upward directory search from `$CWD`.
+    pub fn load(manifest_path: Option<&Path>) -> Result<Self, ProjectError> {
+        match manifest_path {
+            Some(path) => {
+                let root = path
+                    .parent()
+                    .ok_or_else(|| ProjectError::NotFound(path.to_owned()))?;
+                Self::load_at(root)
+            }
+            None => {
+                let cwd = std::env::current_dir().map_err(|e| ProjectError::Io {
+                    path: PathBuf::from("."),
+                    source: e,
+                })?;
+                Self::load_from(&cwd)
+            }
+        }
+    }
+
     /// Load a project from an explicit root directory.
     pub fn load_at(root: &Path) -> Result<Self, ProjectError> {
         let toml_path = root.join("rosup.toml");
@@ -74,6 +94,12 @@ impl Project {
 }
 
 /// Walk parent directories looking for a rosup.toml file.
+///
+/// Stops at:
+/// - The filesystem root (no more parents).
+/// - The user's home directory (safety bound — avoids picking up stale
+///   manifests from unrelated parent projects).
+/// - A filesystem boundary (different device ID on Unix).
 fn find_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_absolute() {
         start.to_owned()
@@ -81,14 +107,47 @@ fn find_root(start: &Path) -> Option<PathBuf> {
         std::env::current_dir().ok()?.join(start)
     };
 
+    let home = dirs::home_dir();
+    let start_dev = device_id(&current);
+
     loop {
         if current.join("rosup.toml").exists() {
             return Some(current);
         }
+
+        // Stop at home directory — don't search above it.
+        if let Some(ref h) = home
+            && current == *h
+        {
+            return None;
+        }
+
+        let parent = current.parent()?.to_owned();
+
+        // Stop at filesystem boundary (different mount point).
+        if let Some(start_dev) = start_dev
+            && device_id(&parent) != Some(start_dev)
+        {
+            return None;
+        }
+
         if !current.pop() {
             return None;
         }
     }
+}
+
+/// Get the device ID for a path (Unix only). Returns `None` on non-Unix
+/// platforms or on error.
+#[cfg(unix)]
+fn device_id(path: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| m.dev())
+}
+
+#[cfg(not(unix))]
+fn device_id(_path: &Path) -> Option<u64> {
+    None
 }
 
 /// Discover member packages for a workspace.

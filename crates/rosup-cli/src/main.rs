@@ -25,6 +25,10 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 
+    /// Path to rosup.toml; bypasses the upward directory search
+    #[arg(long, global = true)]
+    manifest_path: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -223,6 +227,16 @@ fn main() -> Result<()> {
         .with_max_level(log_level)
         .with_target(false)
         .init();
+
+    // If --manifest-path is given, change to its parent directory so all
+    // commands that call Project::load_from(&cwd) find the right project.
+    if let Some(ref manifest) = cli.manifest_path {
+        let root = manifest.parent().ok_or_else(|| {
+            color_eyre::eyre::eyre!("invalid --manifest-path: {}", manifest.display())
+        })?;
+        std::env::set_current_dir(root)
+            .wrap_err_with(|| format!("failed to change directory to {}", root.display()))?;
+    }
 
     match cli.command {
         Command::New {

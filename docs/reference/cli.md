@@ -6,8 +6,18 @@ rosup searches for `rosup.toml` starting from the current directory, walking up
 to parent directories. The directory containing `rosup.toml` is the **project
 root**. All commands operate relative to the project root.
 
+The upward search stops at the user's home directory and at filesystem mount
+boundaries to avoid picking up stale manifests from unrelated parent projects.
+
 If no `rosup.toml` is found, most commands will error with a hint to run
 `rosup init`.
+
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--manifest-path <path>` | Path to `rosup.toml`; bypasses the upward directory search. The parent directory of the file is used as the project root. |
+| `-v`, `--verbose` | Increase verbosity (`-v` info, `-vv` debug, `-vvv` trace). |
 
 All commands that need dependencies (build, test, run, launch) resolve them
 automatically before proceeding. They also require the base ROS environment to

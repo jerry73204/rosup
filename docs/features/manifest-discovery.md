@@ -1,3 +1,11 @@
+# Feature: Manifest Discovery (Cargo Convention) — IMPLEMENTED
+
+> **Status:** Implemented. `--manifest-path` global flag added, filesystem
+> boundary detection (home directory + device ID) added to the upward search.
+> Implicit `-p` scoping (section 4) is not yet implemented.
+
+---
+
 # Feature: Manifest Discovery (Cargo Convention)
 
 ## Problem
