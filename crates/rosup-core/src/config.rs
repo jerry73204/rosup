@@ -74,6 +74,11 @@ pub struct ResolveConfig {
     /// Per-dependency source overrides.
     #[serde(default)]
     pub overrides: HashMap<String, DepOverride>,
+    /// Dependency names to ignore during resolution. Use this for deps that
+    /// are erroneous in upstream package.xml files you cannot modify, or for
+    /// deps only available on other platforms.
+    #[serde(default)]
+    pub ignore_deps: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]

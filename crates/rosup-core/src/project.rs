@@ -140,11 +140,16 @@ impl Project {
         let member_names: std::collections::HashSet<String> =
             manifests.iter().map(|m| m.name.clone()).collect();
 
+        let ignore_deps = &self.config.resolve.ignore_deps;
+
         let mut dep_names: Vec<String> = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for pkg in &manifests {
             for dep in pkg.deps.all() {
                 if member_names.contains(dep) {
+                    continue;
+                }
+                if ignore_deps.iter().any(|i| i == dep) {
                     continue;
                 }
                 if seen.insert(dep.to_owned()) {
