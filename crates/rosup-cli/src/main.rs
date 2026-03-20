@@ -11,7 +11,7 @@ use rosup_core::{
     overlay,
     project::Project,
     resolver::{
-        ResolutionMethod, Resolver,
+        Resolver,
         rosdistro::DistroCache,
         store::{GlobalStore, ProjectStore},
     },
@@ -819,7 +819,9 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     // Try to load a project manifest; fall back to a bare package.xml.
     let (dep_names, resolve_config, project_root) = match Project::load_from(&cwd) {
         Ok(project) => {
-            let deps = collect_dep_names(&project)?;
+            let (deps, _members) = project
+                .external_deps()
+                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
             (deps, project.config.resolve.clone(), project.root.clone())
         }
         Err(_) => {
@@ -832,9 +834,6 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
             let manifest = rosup_core::package_xml::parse_file(&pkg_xml)
                 .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
             let deps = manifest.deps.all().into_iter().map(str::to_owned).collect();
-            // No rosup.toml — this is the one place where ROS_DISTRO env is
-            // accepted as a source of truth (the user must have a ROS environment
-            // sourced to be working with a bare package.xml).
             let resolve_config = ResolveConfig {
                 ros_distro: std::env::var("ROS_DISTRO").ok(),
                 ..ResolveConfig::default()
@@ -859,20 +858,7 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
             .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
         for dep in &plan.resolved {
-            let action = match &dep.method {
-                ResolutionMethod::Ament => "already installed".to_owned(),
-                ResolutionMethod::Binary { packages, .. } => {
-                    format!("binary: {}", packages.join(", "))
-                }
-                ResolutionMethod::Source { repo, url, branch } => {
-                    format!("source: {repo} ({url} @ {branch})")
-                }
-                ResolutionMethod::Override { url, branch, rev } => {
-                    let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
-                    format!("override: {url} @ {loc}")
-                }
-            };
-            println!("would resolve {}: {action}", dep.name);
+            println!("would resolve {}: {}", dep.name, format_method(&dep.method));
         }
 
         if !plan.unresolved.is_empty() {
@@ -892,20 +878,7 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
             .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
         for dep in &plan.resolved {
-            let action = match &dep.method {
-                ResolutionMethod::Ament => "already installed".to_owned(),
-                ResolutionMethod::Binary { packages, .. } => {
-                    format!("binary: {}", packages.join(", "))
-                }
-                ResolutionMethod::Source { repo, url, branch } => {
-                    format!("source: {repo} ({url} @ {branch})")
-                }
-                ResolutionMethod::Override { url, branch, rev } => {
-                    let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
-                    format!("override: {url} @ {loc}")
-                }
-            };
-            println!("resolved {}: {action}", dep.name);
+            println!("resolved {}: {}", dep.name, format_method(&dep.method));
         }
     }
 
@@ -938,7 +911,9 @@ fn cmd_build(
 
     // Phase 1: resolve deps and clone source packages.
     if !no_resolve {
-        let dep_names = collect_dep_names(&project)?;
+        let (dep_names, _members) = project
+            .external_deps()
+            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
         if !dep_names.is_empty() {
             let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
             resolver
@@ -990,7 +965,9 @@ fn cmd_test(
     );
 
     if !no_resolve {
-        let dep_names = collect_dep_names(&project)?;
+        let (dep_names, _members) = project
+            .external_deps()
+            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
         if !dep_names.is_empty() {
             let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
             resolver
@@ -1169,39 +1146,22 @@ fn cmd_clone(
 /// In workspace mode, aggregates deps from all discovered member packages,
 /// excluding deps whose names match workspace member packages (those are
 /// built from source by colcon as part of the same workspace).
-fn collect_dep_names(project: &Project) -> Result<Vec<String>> {
-    let manifests = if project.config.workspace.is_some() {
-        project.members()?
-    } else {
-        let pkg_xml = project.root.join("package.xml");
-        if pkg_xml.exists() {
-            vec![
-                rosup_core::package_xml::parse_file(&pkg_xml)
-                    .map_err(|e| color_eyre::eyre::eyre!("{e}"))?,
-            ]
-        } else {
-            Vec::new()
+fn format_method(method: &rosup_core::resolver::ResolutionMethod) -> String {
+    use rosup_core::resolver::ResolutionMethod;
+    match method {
+        ResolutionMethod::WorkspaceMember => "workspace member".to_owned(),
+        ResolutionMethod::Ament => "already installed".to_owned(),
+        ResolutionMethod::Binary { packages, .. } => {
+            format!("binary: {}", packages.join(", "))
         }
-    };
-
-    // In workspace mode, deps that are names of workspace members are resolved
-    // by colcon building the workspace — don't pass them to the external resolver.
-    let member_names: std::collections::HashSet<&str> =
-        manifests.iter().map(|m| m.name.as_str()).collect();
-
-    let mut dep_names: Vec<String> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for pkg in &manifests {
-        for dep in pkg.deps.all() {
-            if member_names.contains(dep) {
-                continue;
-            }
-            if seen.insert(dep.to_owned()) {
-                dep_names.push(dep.to_owned());
-            }
+        ResolutionMethod::Source { repo, url, branch } => {
+            format!("source: {repo} ({url} @ {branch})")
+        }
+        ResolutionMethod::Override { url, branch, rev } => {
+            let loc = rev.as_deref().or(branch.as_deref()).unwrap_or("HEAD");
+            format!("override: {url} @ {loc}")
         }
     }
-    Ok(dep_names)
 }
 
 /// Resolve which package.xml to operate on.

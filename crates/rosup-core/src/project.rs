@@ -91,6 +91,73 @@ impl Project {
         };
         discover_members(&self.root, ws)
     }
+
+    /// Collect all unique external dependency names.
+    ///
+    /// In workspace mode, deps whose names match workspace member package
+    /// names are excluded — colcon builds those from source.
+    /// In single-package mode, all deps are returned.
+    ///
+    /// Returns `(dep_names, member_names)`.
+    pub fn external_deps(
+        &self,
+    ) -> Result<(Vec<String>, std::collections::HashSet<String>), ProjectError> {
+        let manifests = if self.config.workspace.is_some() {
+            self.members()?
+        } else {
+            let pkg_xml = self.root.join("package.xml");
+            if pkg_xml.exists() {
+                vec![package_xml::parse_file(&pkg_xml)?]
+            } else {
+                vec![]
+            }
+        };
+
+        let member_names: std::collections::HashSet<String> =
+            manifests.iter().map(|m| m.name.clone()).collect();
+
+        let mut dep_names: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for pkg in &manifests {
+            for dep in pkg.deps.all() {
+                if member_names.contains(dep) {
+                    continue;
+                }
+                if seen.insert(dep.to_owned()) {
+                    dep_names.push(dep.to_owned());
+                }
+            }
+        }
+        Ok((dep_names, member_names))
+    }
+
+    /// Collect all dependency names (including workspace members).
+    ///
+    /// Unlike `external_deps`, this does NOT filter out workspace members.
+    /// Used by `rosup tree` to show the complete dependency picture.
+    pub fn all_dep_names(&self) -> Result<Vec<String>, ProjectError> {
+        let manifests = if self.config.workspace.is_some() {
+            self.members()?
+        } else {
+            let pkg_xml = self.root.join("package.xml");
+            if pkg_xml.exists() {
+                vec![package_xml::parse_file(&pkg_xml)?]
+            } else {
+                vec![]
+            }
+        };
+
+        let mut dep_names: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for pkg in &manifests {
+            for dep in pkg.deps.all() {
+                if seen.insert(dep.to_owned()) {
+                    dep_names.push(dep.to_owned());
+                }
+            }
+        }
+        Ok(dep_names)
+    }
 }
 
 /// Walk parent directories looking for a rosup.toml file.

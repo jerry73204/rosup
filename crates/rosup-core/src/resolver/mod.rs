@@ -19,6 +19,8 @@ use store::{GlobalStore, ProjectStore};
 /// How a dependency was (or will be) resolved.
 #[derive(Debug, Clone)]
 pub enum ResolutionMethod {
+    /// Another package in the same workspace — built from source by colcon.
+    WorkspaceMember,
     /// Already present in the ament environment.
     Ament,
     /// Installed as a binary package via rosdep.
@@ -47,6 +49,7 @@ pub enum ResolutionMethod {
 impl std::fmt::Display for ResolutionMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ResolutionMethod::WorkspaceMember => write!(f, "workspace member"),
             ResolutionMethod::Ament => write!(f, "ament (already installed)"),
             ResolutionMethod::Binary { packages, .. } => {
                 write!(f, "binary ({})", packages.join(", "))
@@ -132,6 +135,41 @@ impl Resolver {
         })
     }
 
+    /// Classify all dependencies into the full 6-category model.
+    ///
+    /// This is the single source of truth for dependency classification.
+    /// Workspace member names are checked first (Category 1), then the
+    /// external resolver handles categories 2–6.
+    pub fn classify_all(
+        &self,
+        deps: &[String],
+        workspace_members: &std::collections::HashSet<&str>,
+        source_only: bool,
+        force_refresh: bool,
+    ) -> Result<ResolutionPlan, ResolverError> {
+        let cache = DistroCache::load(&self.global.cache, &self.distro, force_refresh)?;
+        let mut plan = ResolutionPlan::default();
+
+        for dep in deps {
+            if workspace_members.contains(dep.as_str()) {
+                plan.resolved.push(ResolvedDep {
+                    name: dep.clone(),
+                    method: ResolutionMethod::WorkspaceMember,
+                });
+            } else {
+                match self.resolve_one(dep, &cache, source_only) {
+                    Some(method) => plan.resolved.push(ResolvedDep {
+                        name: dep.clone(),
+                        method,
+                    }),
+                    None => plan.unresolved.push(dep.clone()),
+                }
+            }
+        }
+
+        Ok(plan)
+    }
+
     /// Build a resolution plan without executing anything.
     pub fn plan(
         &self,
@@ -183,16 +221,18 @@ impl Resolver {
         cache: &DistroCache,
         source_only: bool,
     ) -> Option<ResolutionMethod> {
-        // 1. Ament environment (always check first).
-        if ament::is_installed(dep) {
-            debug!("{dep}: found in ament environment");
-            return Some(ResolutionMethod::Ament);
-        }
-
-        // 2. User override from rosup.toml (takes priority over auto-resolution).
+        // 1. User override from rosup.toml — explicit user intent wins over
+        //    auto-detection. This covers cases where the user wants a patched
+        //    fork even though the package is installed in ament.
         if let Some(ov) = self.config.overrides.get(dep) {
             debug!("{dep}: using rosup.toml override");
             return Some(override_method(ov));
+        }
+
+        // 2. Ament environment (already installed in a sourced overlay).
+        if ament::is_installed(dep) {
+            debug!("{dep}: found in ament environment");
+            return Some(ResolutionMethod::Ament);
         }
 
         let prefer_source =
@@ -246,6 +286,9 @@ impl Resolver {
 
         for dep in &plan.resolved {
             match &dep.method {
+                ResolutionMethod::WorkspaceMember => {
+                    debug!("{}: workspace member, skipping", dep.name);
+                }
                 ResolutionMethod::Ament => {
                     debug!("{}: already installed, skipping", dep.name);
                 }
