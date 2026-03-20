@@ -67,6 +67,43 @@ impl Dependencies {
     }
 }
 
+/// Evaluate a REP-149 condition expression with `$ROS_VERSION=2`.
+///
+/// Handles simple comparisons like `$ROS_VERSION == 1`, `$ROS_VERSION != 2`,
+/// and `$ROS_VERSION == 2`. For conditions we can't evaluate (complex
+/// expressions with `and`/`or`/parentheses), returns `true` (conservative:
+/// include the dep rather than silently dropping it).
+fn eval_condition(condition: &str) -> bool {
+    // Substitute known variables.
+    let expr = condition.replace("$ROS_VERSION", "2");
+
+    // If unresolved variables remain, we can't evaluate — include the dep.
+    if expr.contains('$') {
+        return true;
+    }
+
+    // Try to match simple: `<lhs> <op> <rhs>` patterns.
+    let expr = expr.trim();
+    for op in &["==", "!=", ">=", "<=", ">", "<"] {
+        if let Some((lhs, rhs)) = expr.split_once(op) {
+            let lhs = lhs.trim().trim_matches(|c| c == '"' || c == '\'');
+            let rhs = rhs.trim().trim_matches(|c| c == '"' || c == '\'');
+            return match *op {
+                "==" => lhs == rhs,
+                "!=" => lhs != rhs,
+                ">=" => lhs >= rhs,
+                "<=" => lhs <= rhs,
+                ">" => lhs > rhs,
+                "<" => lhs < rhs,
+                _ => true,
+            };
+        }
+    }
+
+    // Can't parse — include the dep (conservative).
+    true
+}
+
 pub fn parse_file(path: &Path) -> Result<PackageManifest, PackageXmlError> {
     let content = std::fs::read_to_string(path).map_err(|e| PackageXmlError::Io {
         path: path.display().to_string(),
@@ -105,7 +142,9 @@ pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlEr
 
     // Stack of open element names so we know the current path.
     // We only need to track depth-1 tags and `export > build_type`.
+    // Track whether the current element has a ROS 1 condition.
     let mut tag_stack: Vec<String> = Vec::new();
+    let mut skip_ros1: Vec<bool> = Vec::new();
 
     loop {
         match reader.read_event().map_err(map_err)? {
@@ -113,12 +152,26 @@ pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlEr
                 let tag = std::str::from_utf8(e.name().as_ref())
                     .unwrap_or("")
                     .to_owned();
+                // Evaluate `condition` attribute (REP-149). rosup only
+                // supports ROS 2, so we substitute $ROS_VERSION=2 and
+                // evaluate simple comparisons. Complex conditions we
+                // can't evaluate are treated as true (conservative).
+                let should_skip = e.attributes().flatten().any(|attr| {
+                    attr.key.as_ref() == b"condition"
+                        && !eval_condition(&String::from_utf8_lossy(&attr.value))
+                });
                 tag_stack.push(tag);
+                skip_ros1.push(should_skip);
             }
             Event::End(_) => {
                 tag_stack.pop();
+                skip_ros1.pop();
             }
             Event::Text(e) => {
+                // Skip elements with ROS 1 condition.
+                if skip_ros1.last() == Some(&true) {
+                    continue;
+                }
                 let text = e.unescape().map_err(map_err)?.into_owned();
                 if text.is_empty() {
                     continue;
@@ -213,5 +266,46 @@ mod tests {
         .unwrap();
         assert_eq!(manifest.deps.depend, vec!["rclcpp", "tf2"]);
         assert_eq!(manifest.deps.exec_depend, vec!["sensor_msgs"]);
+    }
+
+    #[test]
+    fn conditional_deps_skip_ros1() {
+        let manifest =
+            parse_str(&fixture("package_xml/conditional_deps.xml"), &dummy_path()).unwrap();
+        // ROS 2 deps should be present.
+        assert!(manifest.deps.depend.contains(&"rclcpp".to_owned()));
+        assert!(manifest.deps.depend.contains(&"sensor_msgs".to_owned()));
+        assert!(manifest.deps.depend.contains(&"std_msgs".to_owned()));
+        assert_eq!(
+            manifest.deps.buildtool_depend,
+            vec!["ament_cmake".to_owned()]
+        );
+        assert_eq!(manifest.build_type.as_deref(), Some("ament_cmake"));
+        // ROS 1 deps should be absent.
+        assert!(!manifest.deps.depend.contains(&"roscpp".to_owned()));
+        assert!(!manifest.deps.depend.contains(&"roslib".to_owned()));
+        assert!(
+            !manifest
+                .deps
+                .buildtool_depend
+                .contains(&"catkin".to_owned())
+        );
+    }
+
+    #[test]
+    fn eval_condition_simple() {
+        // ROS 2 conditions (should be true).
+        assert!(eval_condition("$ROS_VERSION == 2"));
+        assert!(eval_condition("$ROS_VERSION != 1"));
+
+        // ROS 1 conditions (should be false).
+        assert!(!eval_condition("$ROS_VERSION == 1"));
+        assert!(!eval_condition("$ROS_VERSION != 2"));
+
+        // Unknown variables — conservative, return true.
+        assert!(eval_condition("$PLATFORM == jetson"));
+
+        // Complex expressions we can't parse — conservative, return true.
+        assert!(eval_condition("$ROS_VERSION == 2 and $ARCH == arm64"));
     }
 }
