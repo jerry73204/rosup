@@ -31,6 +31,25 @@ pub enum ProjectError {
     Init(#[from] InitError),
 }
 
+/// Warn if any exclude entry is redundant (covered by a broader entry).
+fn warn_overlapping_excludes(exclude: &[String]) {
+    for (i, a) in exclude.iter().enumerate() {
+        for b in &exclude[i + 1..] {
+            if b.starts_with(&format!("{a}/")) {
+                tracing::warn!(
+                    "exclude entry `{b}` is redundant — already covered by `{a}`. \
+                     Run `rosup exclude` or `rosup include` to clean up."
+                );
+            } else if a.starts_with(&format!("{b}/")) {
+                tracing::warn!(
+                    "exclude entry `{a}` is redundant — already covered by `{b}`. \
+                     Run `rosup exclude` or `rosup include` to clean up."
+                );
+            }
+        }
+    }
+}
+
 /// A fully loaded rosup project rooted at a specific directory.
 #[derive(Debug)]
 pub struct Project {
@@ -77,6 +96,11 @@ impl Project {
             path: toml_path,
             source: e,
         })?;
+
+        if let Some(ws) = &config.workspace {
+            warn_overlapping_excludes(&ws.exclude);
+        }
+
         Ok(Self {
             root: root.to_owned(),
             config,
@@ -129,6 +153,35 @@ impl Project {
             }
         }
         Ok((dep_names, member_names))
+    }
+
+    /// Resolve the `[workspace] exclude` directory paths to package names.
+    ///
+    /// Scans each excluded directory for `package.xml` files and returns
+    /// the `<name>` from each. These names can be passed to colcon's
+    /// `--packages-skip` flag.
+    pub fn excluded_package_names(&self) -> Result<Vec<String>, ProjectError> {
+        let ws = match &self.config.workspace {
+            Some(ws) => ws,
+            None => return Ok(Vec::new()),
+        };
+        if ws.exclude.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Scan the workspace WITHOUT excludes to find all packages, then
+        // filter to those that ARE excluded.
+        let all = init::colcon_scan(&self.root, &[])?;
+        let mut excluded_names = Vec::new();
+        for rel in &all {
+            if init::is_excluded(rel, &ws.exclude) {
+                let pkg_xml = self.root.join(rel).join("package.xml");
+                if let Ok(manifest) = package_xml::parse_file(&pkg_xml) {
+                    excluded_names.push(manifest.name);
+                }
+            }
+        }
+        Ok(excluded_names)
     }
 
     /// Collect all dependency names (including workspace members).
@@ -226,15 +279,9 @@ fn discover_members(
     root: &Path,
     ws: &WorkspaceConfig,
 ) -> Result<Vec<PackageManifest>, ProjectError> {
-    let excludes: Vec<glob::Pattern> = ws
-        .exclude
-        .iter()
-        .map(|p| glob::Pattern::new(p))
-        .collect::<Result<_, _>>()?;
-
     let rel_paths: Vec<String> = match &ws.members {
         // Auto-discovery: delegate to Colcon rules.
-        None => init::colcon_scan(root, &excludes)?,
+        None => init::colcon_scan(root, &ws.exclude)?,
 
         // Explicit glob patterns.
         Some(patterns) => {
@@ -253,7 +300,7 @@ fn discover_members(
                     }
                     let rel = entry.strip_prefix(root).unwrap_or(&entry);
                     let rel_str = rel.display().to_string();
-                    if excludes.iter().any(|ex| ex.matches(&rel_str)) {
+                    if init::is_excluded(&rel_str, &ws.exclude) {
                         continue;
                     }
                     paths.push(rel_str);
@@ -328,7 +375,7 @@ mod tests {
 
         fs::write(
             tmp.path().join("rosup.toml"),
-            "[workspace]\nmembers = [\"src/*\"]\nexclude = [\"src/experimental_*\"]\n",
+            "[workspace]\nmembers = [\"src/*\"]\nexclude = [\"src/experimental_pkg\"]\n",
         )
         .unwrap();
 
@@ -376,7 +423,7 @@ mod tests {
 
         fs::write(
             tmp.path().join("rosup.toml"),
-            "[workspace]\nexclude = [\"src/experimental_*\"]\n",
+            "[workspace]\nexclude = [\"src/experimental_pkg\"]\n",
         )
         .unwrap();
 
@@ -444,7 +491,7 @@ mod tests {
 
         fs::write(
             tmp.path().join("rosup.toml"),
-            "[workspace]\nexclude = [\"**/tests/**\"]\n",
+            "[workspace]\nexclude = [\"src/a/tests\", \"src/b/tests\"]\n",
         )
         .unwrap();
 
@@ -462,7 +509,7 @@ mod tests {
 
         fs::write(
             tmp.path().join("rosup.toml"),
-            "[workspace]\nmembers = [\"src/**\"]\nexclude = [\"**/tests/**\"]\n",
+            "[workspace]\nmembers = [\"src/**\"]\nexclude = [\"src/a/tests\", \"src/b/tests\"]\n",
         )
         .unwrap();
 

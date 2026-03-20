@@ -155,18 +155,24 @@ enum Command {
         #[arg(short, long)]
         package: Option<String>,
     },
-    /// Add a glob pattern to the workspace exclude list
+    /// Add a path glob or package name to the workspace exclude list
     Exclude {
-        /// Glob pattern to exclude (e.g. "src/localization/autoware_isaac_*")
+        /// Path glob to exclude (e.g. "src/localization/autoware_isaac_*")
         pattern: Option<String>,
+        /// Exclude a package by name (looks up its directory path)
+        #[arg(long, conflicts_with = "pattern")]
+        pkg: Option<String>,
         /// List current exclude patterns
         #[arg(long)]
         list: bool,
     },
-    /// Remove a glob pattern from the workspace exclude list
+    /// Re-include a package or path in the workspace (remove from exclude list)
     Include {
-        /// Glob pattern to remove from the exclude list
-        pattern: String,
+        /// Path to remove from the exclude list
+        pattern: Option<String>,
+        /// Re-include by package name
+        #[arg(long, conflicts_with = "pattern")]
+        pkg: Option<String>,
     },
     /// Search the ROS package index
     Search {
@@ -203,6 +209,9 @@ enum Command {
         /// Force re-download of the rosdistro cache
         #[arg(long)]
         refresh: bool,
+        /// Assume yes to all prompts (non-interactive)
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
     /// Generate shell completions
     Completions {
@@ -287,13 +296,14 @@ fn main() -> Result<()> {
             dev,
         } => cmd_add(dep_name, package, build, exec, test, dev),
         Command::Remove { dep_name, package } => cmd_remove(dep_name, package),
-        Command::Exclude { pattern, list } => cmd_exclude(pattern, list),
-        Command::Include { pattern } => cmd_include(pattern),
+        Command::Exclude { pattern, pkg, list } => cmd_exclude(pattern, pkg, list),
+        Command::Include { pattern, pkg } => cmd_include(pattern, pkg),
         Command::Resolve {
             dry_run,
             source_only,
             refresh,
-        } => cmd_resolve(dry_run, source_only, refresh),
+            yes,
+        } => cmd_resolve(dry_run, source_only, refresh, yes),
         Command::Build {
             packages,
             deps,
@@ -639,15 +649,8 @@ fn cmd_sync(dry_run: bool, check: bool, lock: bool) -> Result<()> {
         return Ok(());
     }
 
-    let excludes: Vec<glob::Pattern> = ws
-        .exclude
-        .iter()
-        .map(|p| glob::Pattern::new(p))
-        .collect::<Result<Vec<_>, _>>()
+    let current: Vec<String> = init::colcon_scan(&project.root, &ws.exclude)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
-
-    let current: Vec<String> =
-        init::colcon_scan(&project.root, &excludes).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     let existing: Vec<String> = ws.members.clone().unwrap_or_default();
 
@@ -706,7 +709,129 @@ fn cmd_sync(dry_run: bool, check: bool, lock: bool) -> Result<()> {
 
 // ── exclude / include ─────────────────────────────────────────────────────────
 
-fn cmd_exclude(pattern: Option<String>, list: bool) -> Result<()> {
+/// Resolve a --pkg name to its relative directory path within the workspace.
+fn resolve_pkg_to_path(root: &std::path::Path, pkg_name: &str) -> Result<String> {
+    let all_members = init::colcon_scan(root, &[]).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    for rel in &all_members {
+        let pkg_xml = root.join(rel).join("package.xml");
+        if pkg_xml.exists()
+            && let Ok(manifest) = rosup_core::package_xml::parse_file(&pkg_xml)
+            && manifest.name == pkg_name
+        {
+            return Ok(rel.clone());
+        }
+    }
+    color_eyre::eyre::bail!(
+        "package `{pkg_name}` not found in workspace source tree.\n\
+         Only workspace member packages can be excluded."
+    )
+}
+
+/// Expand a CLI pattern (may contain `*` in last segment) to concrete paths.
+fn expand_exclude_pattern(root: &std::path::Path, pattern: &str) -> Result<Vec<String>> {
+    if !pattern.contains('*') {
+        return Ok(vec![pattern.to_owned()]);
+    }
+    // Use glob to expand, then return relative paths that are directories.
+    let abs_pattern = root.join(pattern).display().to_string();
+    let mut paths = Vec::new();
+    for entry in glob::glob(&abs_pattern).wrap_err("invalid glob pattern")? {
+        let entry = entry.wrap_err("glob error")?;
+        if entry.is_dir() {
+            let rel = entry
+                .strip_prefix(root)
+                .unwrap_or(&entry)
+                .display()
+                .to_string();
+            paths.push(rel);
+        }
+    }
+    if paths.is_empty() {
+        color_eyre::eyre::bail!("pattern `{pattern}` matched no directories");
+    }
+    Ok(paths)
+}
+
+/// Normalize the exclude list: remove entries that are redundant because
+/// a broader entry already covers them. This handles manually edited
+/// rosup.toml files where the user wrote overlapping entries.
+fn normalize_excludes(excludes: &mut Vec<String>) {
+    excludes.sort();
+    let mut i = 0;
+    while i < excludes.len() {
+        let mut j = i + 1;
+        while j < excludes.len() {
+            if excludes[j].starts_with(&format!("{}/", excludes[i])) {
+                excludes.remove(j);
+            } else {
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Add paths to the exclude set, maintaining the prefix invariant:
+/// no entry is a prefix of another.
+fn exclude_add(excludes: &mut Vec<String>, new_paths: &[String]) {
+    normalize_excludes(excludes);
+    for path in new_paths {
+        // If already covered by an existing broader entry, skip.
+        if excludes
+            .iter()
+            .any(|ex| path == ex || path.starts_with(&format!("{ex}/")))
+        {
+            continue;
+        }
+        // Remove existing entries that the new path subsumes.
+        excludes.retain(|ex| !ex.starts_with(&format!("{path}/")));
+        excludes.push(path.clone());
+    }
+    excludes.sort();
+}
+
+/// Remove a path from the exclude set. If the path is covered by a broader
+/// entry, split that entry into sibling packages.
+fn exclude_remove(
+    excludes: &mut Vec<String>,
+    target: &str,
+    workspace_root: &std::path::Path,
+) -> Result<()> {
+    normalize_excludes(excludes);
+
+    // Exact match: just remove.
+    if let Some(pos) = excludes.iter().position(|e| e == target) {
+        excludes.remove(pos);
+        return Ok(());
+    }
+
+    // Find the covering entry (a prefix of the target).
+    let covering = excludes
+        .iter()
+        .position(|ex| target.starts_with(&format!("{ex}/")));
+
+    let Some(covering_idx) = covering else {
+        color_eyre::eyre::bail!("`{target}` is not excluded (no matching entry in exclude list)");
+    };
+
+    let covering_path = excludes.remove(covering_idx);
+
+    // Scan the covering directory for all packages, re-add all except target.
+    let covering_dir = workspace_root.join(&covering_path);
+    let siblings =
+        init::colcon_scan(&covering_dir, &[]).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    for sibling_rel in &siblings {
+        let full_rel = format!("{covering_path}/{sibling_rel}");
+        if full_rel != target {
+            excludes.push(full_rel);
+        }
+    }
+    excludes.sort();
+    Ok(())
+}
+
+fn cmd_exclude(pattern: Option<String>, pkg: Option<String>, list: bool) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
     let ws = project
@@ -715,7 +840,7 @@ fn cmd_exclude(pattern: Option<String>, list: bool) -> Result<()> {
         .as_ref()
         .ok_or_else(|| color_eyre::eyre::eyre!("`exclude` requires a workspace project"))?;
 
-    if list || pattern.is_none() {
+    if list || (pattern.is_none() && pkg.is_none()) {
         if ws.exclude.is_empty() {
             println!("No exclude patterns configured.");
         } else {
@@ -726,24 +851,33 @@ fn cmd_exclude(pattern: Option<String>, list: bool) -> Result<()> {
         return Ok(());
     }
 
-    let pattern = pattern.unwrap();
+    // Resolve to concrete paths.
+    let new_paths = if let Some(pkg_name) = pkg {
+        vec![resolve_pkg_to_path(&project.root, &pkg_name)?]
+    } else {
+        expand_exclude_pattern(&project.root, &pattern.unwrap())?
+    };
+
     let mut excludes = ws.exclude.clone();
-    if excludes.contains(&pattern) {
-        println!("Pattern already in exclude list: {pattern}");
+    let before_len = excludes.len();
+    exclude_add(&mut excludes, &new_paths);
+
+    if excludes.len() == before_len && excludes == ws.exclude {
+        println!("Already excluded.");
         return Ok(());
     }
-    excludes.push(pattern.clone());
-    excludes.sort();
 
     let toml_path = project.root.join("rosup.toml");
     let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
     let patched = init::patch_exclude(&toml_text, &excludes);
     std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
-    println!("Added exclude pattern: {pattern}");
+    for p in &new_paths {
+        println!("Excluded {p}");
+    }
     Ok(())
 }
 
-fn cmd_include(pattern: String) -> Result<()> {
+fn cmd_include(pattern: Option<String>, pkg: Option<String>) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
     let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
     let ws = project
@@ -752,19 +886,24 @@ fn cmd_include(pattern: String) -> Result<()> {
         .as_ref()
         .ok_or_else(|| color_eyre::eyre::eyre!("`include` requires a workspace project"))?;
 
-    let mut excludes = ws.exclude.clone();
-    let before = excludes.len();
-    excludes.retain(|p| p != &pattern);
-
-    if excludes.len() == before {
-        color_eyre::eyre::bail!("pattern `{pattern}` not found in exclude list");
+    if pattern.is_none() && pkg.is_none() {
+        color_eyre::eyre::bail!("provide a path or --pkg <name> to re-include");
     }
+
+    let target = if let Some(pkg_name) = pkg {
+        resolve_pkg_to_path(&project.root, &pkg_name)?
+    } else {
+        pattern.unwrap()
+    };
+
+    let mut excludes = ws.exclude.clone();
+    exclude_remove(&mut excludes, &target, &project.root)?;
 
     let toml_path = project.root.join("rosup.toml");
     let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
     let patched = init::patch_exclude(&toml_text, &excludes);
     std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
-    println!("Removed exclude pattern: {pattern}");
+    println!("Included {target}");
     Ok(())
 }
 
@@ -813,7 +952,7 @@ fn cmd_remove(dep: String, package: Option<String>) -> Result<()> {
 
 // ── resolve ───────────────────────────────────────────────────────────────────
 
-fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
+fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool, yes: bool) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
 
     // Try to load a project manifest; fall back to a bare package.xml.
@@ -874,7 +1013,7 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool) -> Result<()> {
     } else {
         // Non-dry-run: resolve and install. Abort on unresolved deps.
         let plan = resolver
-            .resolve(&dep_names, false, source_only, refresh)
+            .resolve(&dep_names, false, source_only, refresh, yes)
             .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
         for dep in &plan.resolved {
@@ -909,17 +1048,9 @@ fn cmd_build(
         &overlay::ament_prefix_path(&overlay_env),
     );
 
-    // Phase 1: resolve deps and clone source packages.
+    // Phase 1: check that external deps are resolved.
     if !no_resolve {
-        let (dep_names, _members) = project
-            .external_deps()
-            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
-        if !dep_names.is_empty() {
-            let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
-            resolver
-                .resolve(&dep_names, false, false, false)
-                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
-        }
+        check_deps_resolved(&project)?;
     }
 
     // Phase 2: build the dep layer from source-pulled worktrees.
@@ -927,12 +1058,16 @@ fn cmd_build(
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     // Phase 3: build the user workspace.
+    let exclude_packages = project
+        .excluded_package_names()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
     let opts = BuildOptions {
         packages: &packages,
         include_deps,
         cmake_args: &cmake_args,
         release,
         debug,
+        exclude_packages: &exclude_packages,
     };
     builder::build_workspace(
         &project.root,
@@ -965,20 +1100,16 @@ fn cmd_test(
     );
 
     if !no_resolve {
-        let (dep_names, _members) = project
-            .external_deps()
-            .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
-        if !dep_names.is_empty() {
-            let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
-            resolver
-                .resolve(&dep_names, false, false, false)
-                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
-        }
+        check_deps_resolved(&project)?;
     }
 
+    let exclude_packages = project
+        .excluded_package_names()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
     let opts = TestOptions {
         packages: &packages,
         retest_until_pass,
+        exclude_packages: &exclude_packages,
     };
     builder::test_workspace(
         &project.root,
@@ -1146,6 +1277,55 @@ fn cmd_clone(
 /// In workspace mode, aggregates deps from all discovered member packages,
 /// excluding deps whose names match workspace member packages (those are
 /// built from source by colcon as part of the same workspace).
+/// Check that all external deps are satisfied (ament-installed or overridden).
+/// If any deps require action (rosdep install or source clone), print hints
+/// and bail — `build` and `test` should never silently install packages.
+fn check_deps_resolved(project: &Project) -> Result<()> {
+    let (dep_names, _members) = project
+        .external_deps()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    if dep_names.is_empty() {
+        return Ok(());
+    }
+
+    let resolver = Resolver::new(project.config.resolve.clone(), &project.root)?;
+    let plan = resolver
+        .plan(&dep_names, false, false)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    // Deps that need action: anything not already installed.
+    let needs_action: Vec<&str> = plan
+        .resolved
+        .iter()
+        .filter(|d| {
+            !matches!(
+                d.method,
+                rosup_core::resolver::ResolutionMethod::Ament
+                    | rosup_core::resolver::ResolutionMethod::WorkspaceMember
+            )
+        })
+        .map(|d| d.name.as_str())
+        .collect();
+
+    let total_missing = needs_action.len() + plan.unresolved.len();
+    if total_missing == 0 {
+        return Ok(());
+    }
+
+    for name in &needs_action {
+        eprintln!("missing: {name}");
+    }
+    for name in &plan.unresolved {
+        eprintln!("missing: {name} (unresolvable)");
+    }
+    color_eyre::eyre::bail!(
+        "{total_missing} dependencies are not installed. Run `rosup resolve` first.\n\
+         hint: rosup resolve --dry-run    # preview what will be installed\n\
+         hint: rosup resolve              # install missing deps\n\
+         hint: rosup resolve -y           # non-interactive (no prompts)"
+    );
+}
+
 fn format_method(method: &rosup_core::resolver::ResolutionMethod) -> String {
     use rosup_core::resolver::ResolutionMethod;
     match method {
@@ -1249,14 +1429,9 @@ fn find_member_xml(root: &std::path::Path, name: &str) -> Result<std::path::Path
     // It returns parsed manifests, but we need the file path. Re-scan to
     // locate the directory by package name.
     let ws = project.config.workspace.as_ref().unwrap();
-    let excludes: Vec<glob::Pattern> = ws
-        .exclude
-        .iter()
-        .filter_map(|p| glob::Pattern::new(p).ok())
-        .collect();
 
     let discovered =
-        rosup_core::init::colcon_scan(root, &excludes).map_err(|e| eyre::eyre!("{e}"))?;
+        rosup_core::init::colcon_scan(root, &ws.exclude).map_err(|e| eyre::eyre!("{e}"))?;
     for rel in &discovered {
         let pkg_xml = root.join(rel).join("package.xml");
         if pkg_xml.exists() {

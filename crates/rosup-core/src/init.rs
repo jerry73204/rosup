@@ -149,22 +149,26 @@ const COLCON_IGNORE_MARKERS: &[&str] = &["COLCON_IGNORE", "AMENT_IGNORE", "CATKI
 /// Recursively discover ROS packages using Colcon's discovery rules.
 ///
 /// Returns paths relative to `workspace_root`, sorted lexicographically.
-/// The `exclude` slice contains pre-compiled glob patterns; matching paths
-/// are omitted from the result.
-pub fn colcon_scan(
-    workspace_root: &Path,
-    exclude: &[glob::Pattern],
-) -> Result<Vec<String>, InitError> {
+/// The `exclude` slice contains directory path prefixes; any discovered
+/// package whose relative path starts with an exclude prefix is omitted.
+pub fn colcon_scan(workspace_root: &Path, exclude: &[String]) -> Result<Vec<String>, InitError> {
     let mut members = Vec::new();
     colcon_visit(workspace_root, workspace_root, exclude, &mut members)?;
     members.sort();
     Ok(members)
 }
 
+/// Check whether `rel_path` is under any excluded prefix.
+pub fn is_excluded(rel_path: &str, exclude: &[String]) -> bool {
+    exclude
+        .iter()
+        .any(|ex| rel_path == ex || rel_path.starts_with(&format!("{ex}/")))
+}
+
 fn colcon_visit(
     dir: &Path,
     workspace_root: &Path,
-    exclude: &[glob::Pattern],
+    exclude: &[String],
     members: &mut Vec<String>,
 ) -> Result<(), InitError> {
     // A directory containing package.xml is a ROS package — record it and
@@ -175,7 +179,7 @@ fn colcon_visit(
             .unwrap_or(dir)
             .display()
             .to_string();
-        if !exclude.iter().any(|p| p.matches(&rel)) {
+        if !is_excluded(&rel, exclude) {
             members.push(rel);
         }
         return Ok(());
@@ -575,7 +579,7 @@ mod tests {
         make_pkg(&tmp.path().join("src/pkg_a"), "pkg_a");
         make_pkg(&tmp.path().join("src/experimental_pkg"), "experimental_pkg");
 
-        let exclude = vec![glob::Pattern::new("src/experimental_*").unwrap()];
+        let exclude = vec!["src/experimental_pkg".to_owned()];
         let members = colcon_scan(tmp.path(), &exclude).unwrap();
         assert_eq!(members, vec!["src/pkg_a"]);
     }

@@ -54,12 +54,13 @@ pub fn resolve(dep: &str, distro: &str) -> Result<RosdepResolution, RosdepError>
 
 /// Install rosdep keys via the system package manager.
 ///
-/// Writes a minimal `package.xml` to a temp directory and runs:
-/// `rosdep install --from-paths <tmpdir> --ignore-src --rosdistro <distro> -y`
+/// Writes a minimal `package.xml` to a temp directory and runs
+/// `rosdep install --from-paths <tmpdir> --ignore-src --rosdistro <distro>`.
 ///
-/// Using `--from-paths` instead of `--from-keys` for compatibility with older
-/// rosdep versions that do not support the `--from-keys` flag.
-pub fn install(keys: &[&str], distro: &str, dry_run: bool) -> Result<(), RosdepError> {
+/// - `dry_run`: simulate only (`--simulate`).
+/// - `yes`: assume yes to all prompts (`--default-yes`). When false, rosdep
+///   prompts interactively for confirmation (may require sudo).
+pub fn install(keys: &[&str], distro: &str, dry_run: bool, yes: bool) -> Result<(), RosdepError> {
     // Write a minimal package.xml so rosdep can discover the keys via --from-paths.
     let tmp = tempfile::tempdir().map_err(RosdepError::Io)?;
     let dep_lines: String = keys
@@ -91,7 +92,7 @@ pub fn install(keys: &[&str], distro: &str, dry_run: bool) -> Result<(), RosdepE
 
     if dry_run {
         cmd.arg("--simulate");
-    } else {
+    } else if yes {
         cmd.arg("--default-yes");
     }
 

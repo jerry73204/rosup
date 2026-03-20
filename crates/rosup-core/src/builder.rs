@@ -135,6 +135,9 @@ pub struct BuildOptions<'a> {
     pub cmake_args: &'a [String],
     pub release: bool,
     pub debug: bool,
+    /// Workspace member packages to skip (from `[workspace] exclude`).
+    /// Mapped to `colcon build --packages-skip`.
+    pub exclude_packages: &'a [String],
 }
 
 /// Build the user's workspace packages via colcon.
@@ -222,6 +225,9 @@ fn base_build_cmd(
     if !cmake_args.is_empty() {
         cmd.arg("--cmake-args").args(cmake_args);
     }
+    if !opts.exclude_packages.is_empty() {
+        cmd.arg("--packages-skip").args(opts.exclude_packages);
+    }
 
     cmd
 }
@@ -284,6 +290,9 @@ fn merged_cmake_args(base: &[String], extra: &[String], release: bool, debug: bo
 pub struct TestOptions<'a> {
     pub packages: &'a [String],
     pub retest_until_pass: Option<usize>,
+    /// Workspace member packages to skip (from `[workspace] exclude`).
+    /// Mapped to `colcon test --packages-skip`.
+    pub exclude_packages: &'a [String],
 }
 
 /// Run `colcon test` then print a result summary.
@@ -351,6 +360,9 @@ fn build_test_cmd(
     }
     if !opts.packages.is_empty() {
         cmd.arg("--packages-select").args(opts.packages);
+    }
+    if !opts.exclude_packages.is_empty() {
+        cmd.arg("--packages-skip").args(opts.exclude_packages);
     }
     cmd
 }

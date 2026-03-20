@@ -255,29 +255,33 @@ rosup remove nav2_core -p my_robot_nav
 
 ### `rosup exclude`
 
-Add a glob pattern to the workspace exclude list. Excluded packages are not
-discovered by auto-discovery or glob-mode member resolution, so their
-dependencies are not resolved.
+Exclude workspace member packages from discovery. Excluded packages are not
+built, and their dependencies are not resolved. Only workspace members (source
+packages in the source tree) can be excluded — external packages cannot.
 
 ```
-rosup exclude [<pattern>] [--list]
+rosup exclude [<pattern>] [--pkg <name>] [--list]
 ```
 
-| Option   | Description                            |
-|----------|----------------------------------------|
-| `--list` | List current exclude patterns and exit |
+| Option       | Description                                          |
+|--------------|------------------------------------------------------|
+| `<pattern>`  | Directory path glob to add to the exclude list       |
+| `--pkg`      | Exclude by package name (looks up the directory path) |
+| `--list`     | List current exclude patterns and exit               |
 
 Without arguments or with `--list`, prints the current exclude list.
-With a pattern argument, adds it to the `exclude` array in `rosup.toml`.
 
 **Examples:**
 
 ```bash
-# Exclude ARM64-only Isaac packages on x86
-rosup exclude "src/localization/autoware_isaac_localization/*"
+# Exclude by directory path glob
+rosup exclude 'src/localization/autoware_isaac_localization/*'
+
+# Exclude by package name (rosup finds the path automatically)
+rosup exclude --pkg autoware_isaac_localization_launch
 
 # Exclude test comparison packages
-rosup exclude "**/tests/**"
+rosup exclude '**/tests/**'
 
 # List current excludes
 rosup exclude --list
@@ -287,7 +291,7 @@ rosup exclude --list
 
 ### `rosup include`
 
-Remove a glob pattern from the workspace exclude list (re-include packages).
+Remove a pattern from the workspace exclude list (re-include packages).
 
 ```
 rosup include <pattern>
@@ -299,7 +303,7 @@ The pattern must match an existing entry in the exclude list exactly.
 
 ```bash
 # Re-include Isaac packages on ARM64
-rosup include "src/localization/autoware_isaac_localization/*"
+rosup include 'src/localization/autoware_isaac_localization/*'
 ```
 
 ---
@@ -364,7 +368,9 @@ rosup launch my_robot_bringup robot.launch.py -- use_sim_time:=true
 
 ### `rosup resolve`
 
-Manually trigger dependency resolution without building.
+Install missing external dependencies. This is the only command that may
+invoke `sudo` (via `rosdep install`). Build and test commands **do not**
+auto-resolve — they check and hint instead.
 
 ```
 rosup resolve [options]
@@ -372,16 +378,27 @@ rosup resolve [options]
 
 | Option          | Description                                      |
 |-----------------|--------------------------------------------------|
-| `--dry-run`     | Show the resolution plan without installing      |
-| `--source-only` | Force source pull for all deps (skip rosdep)     |
-| `--refresh`     | Force re-download of the rosdistro cache         |
+| `--dry-run`     | Show the resolution plan without installing       |
+| `-y, --yes`     | Assume yes to all prompts (non-interactive)       |
+| `--source-only` | Force source pull for all deps (skip rosdep)      |
+| `--refresh`     | Force re-download of the rosdistro cache          |
 
-**Examples:**
+**Workflow:**
 
 ```bash
-rosup resolve
-rosup resolve --dry-run
-rosup resolve --source-only --refresh
+rosup resolve --dry-run    # preview what will be installed
+rosup resolve              # interactive: rosdep may prompt for sudo
+rosup resolve -y           # non-interactive: no prompts (CI, scripts)
+```
+
+**Note:** `rosup build` and `rosup test` check that deps are satisfied but
+do not install them. If deps are missing, they print:
+
+```
+error: 12 dependencies are not installed. Run `rosup resolve` first.
+hint: rosup resolve --dry-run    # preview what will be installed
+hint: rosup resolve              # install missing deps
+hint: rosup resolve -y           # non-interactive (no prompts)
 ```
 
 ---

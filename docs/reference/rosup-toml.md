@@ -46,7 +46,7 @@ exclude = ["src/experimental_*"]
 | Field     | Type     | Required | Description                                      |
 |-----------|----------|----------|--------------------------------------------------|
 | `members` | string[] | no       | Glob patterns for member package dirs. When absent, rosup discovers packages using Colcon's rules. |
-| `exclude` | string[] | no       | Glob patterns to exclude from member discovery (applied in both modes). |
+| `exclude` | string[] | no       | Directory path globs to exclude from workspace member discovery. Only affects workspace members — external packages cannot be excluded. |
 
 ### Auto-discovery (no `members`)
 

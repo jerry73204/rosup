@@ -194,12 +194,16 @@ impl Resolver {
     }
 
     /// Resolve and install all deps. Returns error if any dep is unresolvable.
+    ///
+    /// `yes`: pass `--default-yes` to rosdep (non-interactive). When false,
+    /// rosdep prompts interactively for confirmation.
     pub fn resolve(
         &self,
         deps: &[String],
         dry_run: bool,
         source_only: bool,
         force_refresh: bool,
+        yes: bool,
     ) -> Result<ResolutionPlan, ResolverError> {
         let plan = self.plan(deps, source_only, force_refresh)?;
 
@@ -211,7 +215,7 @@ impl Resolver {
             return Ok(plan);
         }
 
-        self.execute(&plan)?;
+        self.execute(&plan, yes)?;
         Ok(plan)
     }
 
@@ -275,7 +279,7 @@ impl Resolver {
         None
     }
 
-    fn execute(&self, plan: &ResolutionPlan) -> Result<(), ResolverError> {
+    fn execute(&self, plan: &ResolutionPlan, yes: bool) -> Result<(), ResolverError> {
         let mut binary_keys: Vec<&str> = Vec::new();
 
         // Collect source repos, grouping by repo name.
@@ -333,7 +337,7 @@ impl Resolver {
 
         // Install all binary deps in one rosdep call.
         if !binary_keys.is_empty() {
-            rosdep::install(&binary_keys, &self.distro, false)?;
+            rosdep::install(&binary_keys, &self.distro, false, yes)?;
         }
 
         Ok(())
