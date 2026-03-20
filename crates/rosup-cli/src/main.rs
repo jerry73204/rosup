@@ -751,6 +751,10 @@ fn expand_exclude_pattern(root: &std::path::Path, pattern: &str) -> Result<Vec<S
                 .unwrap_or(&entry)
                 .display()
                 .to_string();
+            // Skip hidden directories.
+            if rel.starts_with('.') || rel.contains("/.") {
+                continue;
+            }
             paths.push(rel);
         }
     }
@@ -863,7 +867,27 @@ fn cmd_exclude(pattern: Option<String>, pkg: Option<String>, list: bool) -> Resu
     let new_paths = if let Some(pkg_name) = pkg {
         vec![resolve_pkg_to_path(&project.root, &pkg_name)?]
     } else {
-        expand_exclude_pattern(&project.root, &pattern.unwrap())?
+        let pat = pattern.unwrap();
+        // Guard: if the pattern has no '/' it's likely a package name, not a path.
+        if !pat.contains('/') {
+            let all_members = init::colcon_scan(&project.root, &[])
+                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+            for rel in &all_members {
+                let pkg_xml = project.root.join(rel).join("package.xml");
+                if pkg_xml.exists()
+                    && let Ok(manifest) = rosup_core::package_xml::parse_file(&pkg_xml)
+                    && manifest.name == pat
+                {
+                    eprintln!(
+                        "warning: `{pat}` looks like a package name, not a directory path.\n\
+                         hint: rosup exclude --pkg {pat}\n\
+                         hint: edit rosup.toml to fix the exclude list"
+                    );
+                    break;
+                }
+            }
+        }
+        expand_exclude_pattern(&project.root, &pat)?
     };
 
     let mut excludes = ws.exclude.clone();
