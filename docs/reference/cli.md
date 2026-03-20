@@ -253,6 +253,57 @@ rosup remove nav2_core -p my_robot_nav
 
 ---
 
+### `rosup exclude`
+
+Add a glob pattern to the workspace exclude list. Excluded packages are not
+discovered by auto-discovery or glob-mode member resolution, so their
+dependencies are not resolved.
+
+```
+rosup exclude [<pattern>] [--list]
+```
+
+| Option   | Description                            |
+|----------|----------------------------------------|
+| `--list` | List current exclude patterns and exit |
+
+Without arguments or with `--list`, prints the current exclude list.
+With a pattern argument, adds it to the `exclude` array in `rosup.toml`.
+
+**Examples:**
+
+```bash
+# Exclude ARM64-only Isaac packages on x86
+rosup exclude "src/localization/autoware_isaac_localization/*"
+
+# Exclude test comparison packages
+rosup exclude "**/tests/**"
+
+# List current excludes
+rosup exclude --list
+```
+
+---
+
+### `rosup include`
+
+Remove a glob pattern from the workspace exclude list (re-include packages).
+
+```
+rosup include <pattern>
+```
+
+The pattern must match an existing entry in the exclude list exactly.
+
+**Examples:**
+
+```bash
+# Re-include Isaac packages on ARM64
+rosup include "src/localization/autoware_isaac_localization/*"
+```
+
+---
+
 ### `rosup search`
 
 Search the ROS package index.

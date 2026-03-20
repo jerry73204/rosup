@@ -155,6 +155,19 @@ enum Command {
         #[arg(short, long)]
         package: Option<String>,
     },
+    /// Add a glob pattern to the workspace exclude list
+    Exclude {
+        /// Glob pattern to exclude (e.g. "src/localization/autoware_isaac_*")
+        pattern: Option<String>,
+        /// List current exclude patterns
+        #[arg(long)]
+        list: bool,
+    },
+    /// Remove a glob pattern from the workspace exclude list
+    Include {
+        /// Glob pattern to remove from the exclude list
+        pattern: String,
+    },
     /// Search the ROS package index
     Search {
         query: String,
@@ -274,6 +287,8 @@ fn main() -> Result<()> {
             dev,
         } => cmd_add(dep_name, package, build, exec, test, dev),
         Command::Remove { dep_name, package } => cmd_remove(dep_name, package),
+        Command::Exclude { pattern, list } => cmd_exclude(pattern, list),
+        Command::Include { pattern } => cmd_include(pattern),
         Command::Resolve {
             dry_run,
             source_only,
@@ -686,6 +701,70 @@ fn cmd_sync(dry_run: bool, check: bool, lock: bool) -> Result<()> {
     let patched = init::patch_members(&toml_text, Some(&current));
     std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
     println!("Updated {} member(s) in rosup.toml.", current.len());
+    Ok(())
+}
+
+// ── exclude / include ─────────────────────────────────────────────────────────
+
+fn cmd_exclude(pattern: Option<String>, list: bool) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    let ws = project
+        .config
+        .workspace
+        .as_ref()
+        .ok_or_else(|| color_eyre::eyre::eyre!("`exclude` requires a workspace project"))?;
+
+    if list || pattern.is_none() {
+        if ws.exclude.is_empty() {
+            println!("No exclude patterns configured.");
+        } else {
+            for pat in &ws.exclude {
+                println!("{pat}");
+            }
+        }
+        return Ok(());
+    }
+
+    let pattern = pattern.unwrap();
+    let mut excludes = ws.exclude.clone();
+    if excludes.contains(&pattern) {
+        println!("Pattern already in exclude list: {pattern}");
+        return Ok(());
+    }
+    excludes.push(pattern.clone());
+    excludes.sort();
+
+    let toml_path = project.root.join("rosup.toml");
+    let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
+    let patched = init::patch_exclude(&toml_text, &excludes);
+    std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
+    println!("Added exclude pattern: {pattern}");
+    Ok(())
+}
+
+fn cmd_include(pattern: String) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    let ws = project
+        .config
+        .workspace
+        .as_ref()
+        .ok_or_else(|| color_eyre::eyre::eyre!("`include` requires a workspace project"))?;
+
+    let mut excludes = ws.exclude.clone();
+    let before = excludes.len();
+    excludes.retain(|p| p != &pattern);
+
+    if excludes.len() == before {
+        color_eyre::eyre::bail!("pattern `{pattern}` not found in exclude list");
+    }
+
+    let toml_path = project.root.join("rosup.toml");
+    let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
+    let patched = init::patch_exclude(&toml_text, &excludes);
+    std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
+    println!("Removed exclude pattern: {pattern}");
     Ok(())
 }
 

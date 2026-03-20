@@ -25,6 +25,7 @@ clap_complete = "4"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+toml_edit = "0.22"
 quick-xml = { version = "0.37", features = ["serialize"] }
 
 # Logging

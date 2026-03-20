@@ -229,91 +229,66 @@ fn colcon_visit(
     Ok(())
 }
 
-// ── rosup sync TOML patch ─────────────────────────────────────────────────────
+// ── rosup sync / exclude TOML patching ───────────────────────────────────────
+//
+// Uses `toml_edit` for format-preserving TOML manipulation instead of
+// hand-rolled string patching.
 
-/// Update the `members = [...]` block in `rosup.toml` text in place.
+/// Update the `members` key under `[workspace]` in `rosup.toml`.
 ///
-/// - If a `members = [` block already exists, it is replaced.
-/// - If absent and `members` is `Some`, the block is inserted after the
-///   `[workspace]` header line.
-/// - If absent and `members` is `None`, the text is returned unchanged
-///   (preserving auto-discovery mode).
+/// - `Some(values)` — set `members = [...]` (replace or insert).
+/// - `None` — remove the `members` key (switch to auto-discovery).
 pub fn patch_members(toml_text: &str, members: Option<&[String]>) -> String {
-    let Some(members) = members else {
-        return toml_text.to_owned();
-    };
+    let mut doc = toml_text
+        .parse::<toml_edit::DocumentMut>()
+        .expect("rosup.toml should be valid TOML");
 
-    let new_block = {
-        let lines: String = members.iter().map(|m| format!("  \"{m}\",\n")).collect();
-        format!("members = [\n{lines}]")
-    };
+    let ws = doc
+        .get_mut("workspace")
+        .and_then(|v| v.as_table_like_mut())
+        .expect("[workspace] section must exist");
 
-    // Try to replace an existing `members = [...]` block (possibly multi-line).
-    if let Some(start) = find_members_block_start(toml_text) {
-        let end = find_members_block_end(toml_text, start);
-        let mut out = toml_text[..start].to_owned();
-        out.push_str(&new_block);
-        out.push_str(&toml_text[end..]);
-        return out;
-    }
-
-    // No existing block — insert after `[workspace]` line.
-    let mut out = String::with_capacity(toml_text.len() + new_block.len() + 1);
-    for line in toml_text.lines() {
-        out.push_str(line);
-        out.push('\n');
-        if line.trim() == "[workspace]" {
-            out.push_str(&new_block);
-            out.push('\n');
+    match members {
+        Some(values) => {
+            let mut arr = toml_edit::Array::new();
+            for v in values {
+                arr.push(v.as_str());
+            }
+            ws.insert("members", toml_edit::value(arr));
+        }
+        None => {
+            ws.remove("members");
         }
     }
-    out
+
+    doc.to_string()
 }
 
-/// Find the byte offset of `members = [` within `text`, or `None`.
-fn find_members_block_start(text: &str) -> Option<usize> {
-    for (i, _) in text.char_indices() {
-        let slice = &text[i..];
-        let stripped = slice.trim_start_matches([' ', '\t']);
-        if let Some(after_key) = stripped.strip_prefix("members") {
-            // Confirm it's `members = [`
-            let rest = after_key.trim_start();
-            if let Some(after_eq) = rest.strip_prefix('=')
-                && after_eq.trim_start().starts_with('[')
-            {
-                return Some(i);
-            }
-        }
-    }
-    None
-}
+/// Update the `exclude` key under `[workspace]` in `rosup.toml`.
+///
+/// - Non-empty `values` — set `exclude = [...]` (replace or insert).
+/// - Empty `values` — remove the `exclude` key entirely.
+pub fn patch_exclude(toml_text: &str, values: &[String]) -> String {
+    let mut doc = toml_text
+        .parse::<toml_edit::DocumentMut>()
+        .expect("rosup.toml should be valid TOML");
 
-/// Find the byte offset just past the closing `]` of the members block.
-fn find_members_block_end(text: &str, start: usize) -> usize {
-    let mut depth = 0usize;
-    let mut found_open = false;
-    for (i, ch) in text[start..].char_indices() {
-        match ch {
-            '[' => {
-                depth += 1;
-                found_open = true;
-            }
-            ']' => {
-                depth -= 1;
-                if found_open && depth == 0 {
-                    // Consume a trailing newline if present.
-                    let end = start + i + 1;
-                    return if text[end..].starts_with('\n') {
-                        end + 1
-                    } else {
-                        end
-                    };
-                }
-            }
-            _ => {}
+    let ws = doc
+        .get_mut("workspace")
+        .and_then(|v| v.as_table_like_mut())
+        .expect("[workspace] section must exist");
+
+    if values.is_empty() {
+        ws.remove("exclude");
+    } else {
+        let mut arr = toml_edit::Array::new();
+        for v in values {
+            arr.push(v.as_str());
         }
+        ws.insert("exclude", toml_edit::value(arr));
     }
-    text.len()
+
+    doc.to_string()
 }
 
 // ── gitignore helper ───────────────────────────────────────────────────────────
