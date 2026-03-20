@@ -115,6 +115,18 @@ source-preference = "binary"   # "binary" | "source" | "auto"
 | `overlays`          | string[] | `[]`     | Ament install prefixes to activate, in underlay→overlay order. rosup sources `setup.sh` from each and applies the resulting environment to all subprocesses. |
 | `source-preference` | enum     | `"auto"` | `"auto"`: try binary first, fall back to source. `"binary"`: prefer rosdep. `"source"`: force source pull. |
 
+### `ignore-deps`
+
+Dependency names to skip during resolution. Use this for deps that are
+erroneous in upstream `package.xml` files you cannot modify, or deps only
+available on other platforms. Only affects external deps — workspace members
+cannot be ignored this way (use `[workspace] exclude` instead).
+
+```toml
+[resolve]
+ignore-deps = ["roscpp", "catkin", "blickfeld-scanner"]
+```
+
 ### `[resolve.overrides.<dep_name>]`
 
 Override resolution for a specific dependency. Forces source pull from the
