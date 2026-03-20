@@ -727,10 +727,18 @@ fn resolve_pkg_to_path(root: &std::path::Path, pkg_name: &str) -> Result<String>
     )
 }
 
-/// Expand a CLI pattern (may contain `*` in last segment) to concrete paths.
+/// Expand a CLI pattern (may contain `*` in the last path segment) to
+/// concrete directory paths. `**` is not supported.
 fn expand_exclude_pattern(root: &std::path::Path, pattern: &str) -> Result<Vec<String>> {
     if !pattern.contains('*') {
         return Ok(vec![pattern.to_owned()]);
+    }
+    if pattern.contains("**") {
+        color_eyre::eyre::bail!(
+            "`**` glob is not supported in exclude patterns.\n\
+             Use `*` in the last path segment (e.g. `src/isaac_*`),\n\
+             or exclude directories individually."
+        );
     }
     // Use glob to expand, then return relative paths that are directories.
     let abs_pattern = root.join(pattern).display().to_string();
