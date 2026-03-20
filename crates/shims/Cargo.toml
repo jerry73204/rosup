@@ -16,5 +16,9 @@ path = "src/bin/fake-git.rs"
 name = "rosdep"
 path = "src/bin/fake-rosdep.rs"
 
+[[bin]]
+name = "ros2"
+path = "src/bin/fake-ros2.rs"
+
 [dependencies]
 serde_json.workspace = true

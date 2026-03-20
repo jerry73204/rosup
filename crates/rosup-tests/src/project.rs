@@ -65,6 +65,12 @@ impl PackageProject {
         }
         self
     }
+
+    /// Pre-create `install/` so `rosup run`/`launch` sees the workspace as built.
+    pub fn with_install_dir(self) -> Self {
+        fs::create_dir_all(self.dir.path().join("install")).unwrap();
+        self
+    }
 }
 
 /// A workspace project with multiple member packages.

@@ -109,6 +109,13 @@ impl TestEnv {
             .filter(|i| i.tool == "rosdep")
             .collect()
     }
+
+    pub fn ros2_calls(&self) -> Vec<ShimInvocation> {
+        self.log()
+            .into_iter()
+            .filter(|i| i.tool == "ros2")
+            .collect()
+    }
 }
 
 impl Default for TestEnv {

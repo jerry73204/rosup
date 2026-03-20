@@ -7,6 +7,7 @@ pub mod overlay;
 pub mod package_xml;
 pub mod project;
 pub mod resolver;
+pub mod runner;
 
 #[cfg(test)]
 pub(crate) mod test_helpers {

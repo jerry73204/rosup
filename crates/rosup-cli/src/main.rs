@@ -15,6 +15,7 @@ use rosup_core::{
         rosdistro::DistroCache,
         store::{GlobalStore, ProjectStore},
     },
+    runner,
 };
 
 #[derive(Parser)]
@@ -321,8 +322,16 @@ fn main() -> Result<()> {
             install,
             print,
         } => cmd_completions(shell, install, print),
-        Command::Run { .. } => todo!("rosup run"),
-        Command::Launch { .. } => todo!("rosup launch"),
+        Command::Run {
+            package_name,
+            executable_name,
+            args,
+        } => cmd_run(package_name, executable_name, args),
+        Command::Launch {
+            package_name,
+            launch_file,
+            args,
+        } => cmd_launch(package_name, launch_file, args),
     }
 }
 
@@ -944,6 +953,42 @@ fn cmd_clean(all: bool, deps: bool, src: bool, packages: Vec<String>) -> Result<
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     Ok(())
+}
+
+// ── run / launch ──────────────────────────────────────────────────────────────
+
+fn cmd_run(package_name: String, executable_name: String, args: Vec<String>) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd)?;
+    let project_store = ProjectStore::open(&project.root);
+    let overlay_env = apply_overlays_from_cwd()?;
+
+    runner::run(
+        &project.root,
+        &project_store,
+        &overlay_env,
+        &package_name,
+        &executable_name,
+        &args,
+    )
+    .map_err(|e| color_eyre::eyre::eyre!("{e}"))
+}
+
+fn cmd_launch(package_name: String, launch_file: String, args: Vec<String>) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd)?;
+    let project_store = ProjectStore::open(&project.root);
+    let overlay_env = apply_overlays_from_cwd()?;
+
+    runner::launch(
+        &project.root,
+        &project_store,
+        &overlay_env,
+        &package_name,
+        &launch_file,
+        &args,
+    )
+    .map_err(|e| color_eyre::eyre::eyre!("{e}"))
 }
 
 // ── search ────────────────────────────────────────────────────────────────────
