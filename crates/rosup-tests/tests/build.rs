@@ -1,4 +1,4 @@
-use rosup_tests::{PackageProject, TestEnv, assert_args_contain};
+use rosup_tests::{PackageProject, TestEnv, WorkspaceProject, assert_args_contain};
 
 fn env() -> TestEnv {
     TestEnv::new()
@@ -133,6 +133,55 @@ fn build_rebuild_deps_rebuilds_dep_layer() {
     // Second call is the workspace build.
     assert_eq!(calls[1].args[0], "build");
     assert!(!calls[1].args.contains(&"--base-paths".to_string()));
+}
+
+#[test]
+fn build_cleans_stale_dep_that_is_now_workspace_member() {
+    // Simulate: nav2_core was previously resolved into .rosup/install/,
+    // then the user cloned it into the workspace source tree.
+    let ws = WorkspaceProject::auto_discovery(&["pkg_a", "nav2_core"]).with_stale_dep("nav2_core");
+
+    let ament_index = ws
+        .root()
+        .join(".rosup/install/share/ament_index/resource_index/packages/nav2_core");
+    let stale_share = ws.root().join(".rosup/install/share/nav2_core");
+    let stale_lib = ws.root().join(".rosup/install/lib/nav2_core");
+    assert!(
+        ament_index.exists(),
+        "precondition: stale ament index exists"
+    );
+    assert!(stale_share.exists(), "precondition: stale share/ exists");
+
+    env()
+        .cmd(ws.root())
+        .args(["build", "--no-resolve"])
+        .assert()
+        .success();
+
+    // After build, the stale dep should be removed.
+    assert!(!ament_index.exists(), "stale ament index should be removed");
+    assert!(!stale_share.exists(), "stale share/ should be removed");
+    assert!(!stale_lib.exists(), "stale lib/ should be removed");
+}
+
+#[test]
+fn build_does_not_remove_non_overlapping_deps() {
+    // external_dep is in .rosup/install/ but NOT a workspace member — should survive.
+    let ws = WorkspaceProject::auto_discovery(&["pkg_a"]).with_stale_dep("external_dep");
+
+    let ament_index = ws
+        .root()
+        .join(".rosup/install/share/ament_index/resource_index/packages/external_dep");
+    assert!(ament_index.exists(), "precondition: external_dep exists");
+
+    env()
+        .cmd(ws.root())
+        .args(["build", "--no-resolve"])
+        .assert()
+        .success();
+
+    // external_dep is NOT a workspace member, so it should remain.
+    assert!(ament_index.exists(), "non-overlapping dep should survive");
 }
 
 #[test]

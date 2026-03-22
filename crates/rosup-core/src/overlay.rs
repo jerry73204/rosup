@@ -30,7 +30,7 @@ pub fn build_env(overlays: &[PathBuf]) -> Result<HashMap<String, String>, Overla
     }
 
     for prefix in overlays {
-        if !prefix.join("setup.sh").exists() {
+        if !prefix.join("setup.bash").exists() {
             return Err(OverlayError::NoSetupScript(prefix.clone()));
         }
     }
@@ -40,11 +40,11 @@ pub fn build_env(overlays: &[PathBuf]) -> Result<HashMap<String, String>, Overla
     // Paths are passed as positional parameters ($1, $2, ...) via Command::arg so
     // they never go through the shell parser — no quoting or injection risk.
     let script = (1..=overlays.len())
-        .map(|i| format!(". \"${i}/setup.sh\""))
+        .map(|i| format!("source \"${i}/setup.bash\""))
         .collect::<Vec<_>>()
         .join(" && ");
 
-    let mut cmd = std::process::Command::new("sh");
+    let mut cmd = std::process::Command::new("bash");
     cmd.arg("-c").arg(format!("{script} && env -0")).arg("--"); // $0 placeholder
     for prefix in overlays {
         cmd.arg(prefix); // becomes $1, $2, ...

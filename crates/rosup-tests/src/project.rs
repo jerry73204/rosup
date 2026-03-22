@@ -110,6 +110,24 @@ impl WorkspaceProject {
     pub fn root(&self) -> &Path {
         self.dir.path()
     }
+
+    /// Simulate a stale dep layer package in `.rosup/install/` that has the
+    /// same name as a workspace member.
+    pub fn with_stale_dep(self, pkg_name: &str) -> Self {
+        let install = self.dir.path().join(".rosup/install");
+        let ament_index = install.join("share/ament_index/resource_index/packages");
+        fs::create_dir_all(&ament_index).unwrap();
+        fs::write(ament_index.join(pkg_name), "").unwrap();
+        // Create share/<name>/ and lib/<name>/ to simulate a full install.
+        fs::create_dir_all(install.join("share").join(pkg_name)).unwrap();
+        fs::write(
+            install.join("share").join(pkg_name).join("package.xml"),
+            "<package><name>stale</name></package>",
+        )
+        .unwrap();
+        fs::create_dir_all(install.join("lib").join(pkg_name)).unwrap();
+        self
+    }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

@@ -125,6 +125,57 @@ pub fn build_dep_layer(
     Ok(())
 }
 
+/// Remove packages from the dep layer install that are now workspace members.
+///
+/// When a user clones a dependency into the workspace source tree to work on
+/// it, the stale build in `.rosup/install/` would shadow the local source.
+/// This function detects the overlap and removes stale packages.
+pub fn clean_stale_deps(
+    project_store: &ProjectStore,
+    workspace_member_names: &[String],
+) -> Result<(), BuildError> {
+    let ament_index = project_store
+        .install
+        .join("share/ament_index/resource_index/packages");
+    if !ament_index.exists() {
+        return Ok(());
+    }
+
+    for name in workspace_member_names {
+        if ament_index.join(name).exists() {
+            info!("removing stale dep `{name}` from .rosup/install/ (now a workspace member)");
+            // Remove the package's share/, lib/, include/ entries.
+            let share = project_store.install.join("share").join(name);
+            let lib = project_store.install.join("lib").join(name);
+            let include = project_store.install.join("include").join(name);
+            let ament_entry = ament_index.join(name);
+            for dir in [&share, &lib, &include] {
+                if dir.exists() {
+                    std::fs::remove_dir_all(dir).map_err(|e| BuildError::Remove {
+                        path: dir.clone(),
+                        source: e,
+                    })?;
+                }
+            }
+            if ament_entry.exists() {
+                std::fs::remove_file(&ament_entry).map_err(|e| BuildError::Remove {
+                    path: ament_entry,
+                    source: e,
+                })?;
+            }
+            // Also clean build artifacts.
+            let build_dir = project_store.build.join(name);
+            if build_dir.exists() {
+                std::fs::remove_dir_all(&build_dir).map_err(|e| BuildError::Remove {
+                    path: build_dir,
+                    source: e,
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
 // ── workspace build ───────────────────────────────────────────────────────────
 
 /// Options for `rosup build`.

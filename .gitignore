@@ -15,5 +15,9 @@ __pycache__/
 .vscode/
 .idea/
 
+# Exploration and scratch
+/external/
+/tmp/
+
 # OS
 .DS_Store

@@ -492,7 +492,7 @@ fn apply_overlays_from_cwd() -> Result<HashMap<String, String>> {
     // Use configured overlays; if none are listed, auto-source the workspace's
     // own Colcon install/ directory when it exists (standard colcon layout).
     let overlays = if project.config.resolve.overlays.is_empty() {
-        let install_setup = project.root.join("install").join("setup.sh");
+        let install_setup = project.root.join("install").join("setup.bash");
         if install_setup.exists() {
             vec![project.root.join("install")]
         } else {
@@ -987,6 +987,9 @@ fn cmd_remove(dep: String, package: Option<String>) -> Result<()> {
 fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool, yes: bool) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
 
+    // Resolve needs overlays sourced so ament checks and rosdep work correctly.
+    apply_overlays_from_cwd()?;
+
     // Try to load a project manifest; fall back to a bare package.xml.
     let (dep_names, resolve_config, project_root) = match Project::load_from(&cwd) {
         Ok(project) => {
@@ -1087,6 +1090,16 @@ fn cmd_build(
 
     // Phase 2: build the dep layer from source-pulled worktrees.
     builder::build_dep_layer(&project.root, &project_store, rebuild_deps, &overlay_env)
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    // Phase 2.5: remove stale deps from .rosup/install/ that are now workspace members.
+    let member_names: Vec<String> = project
+        .members()
+        .map_err(|e| color_eyre::eyre::eyre!("{e}"))?
+        .iter()
+        .map(|m| m.name.clone())
+        .collect();
+    builder::clean_stale_deps(&project_store, &member_names)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     // Phase 3: build the user workspace.
@@ -1309,9 +1322,9 @@ fn cmd_clone(
 /// In workspace mode, aggregates deps from all discovered member packages,
 /// excluding deps whose names match workspace member packages (those are
 /// built from source by colcon as part of the same workspace).
-/// Check that all external deps are satisfied (ament-installed or overridden).
-/// If any deps require action (rosdep install or source clone), print hints
-/// and bail — `build` and `test` should never silently install packages.
+/// Check that all external deps can be resolved. Only truly unresolvable
+/// deps block the build — deps that resolve to Binary, Source, or Override
+/// are assumed to be satisfied after `rosup resolve`.
 fn check_deps_resolved(project: &Project) -> Result<()> {
     let (dep_names, _members) = project
         .external_deps()
@@ -1325,36 +1338,19 @@ fn check_deps_resolved(project: &Project) -> Result<()> {
         .plan(&dep_names, false, false)
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
-    // Deps that need action: anything not already installed.
-    let needs_action: Vec<&str> = plan
-        .resolved
-        .iter()
-        .filter(|d| {
-            !matches!(
-                d.method,
-                rosup_core::resolver::ResolutionMethod::Ament
-                    | rosup_core::resolver::ResolutionMethod::WorkspaceMember
-            )
-        })
-        .map(|d| d.name.as_str())
-        .collect();
-
-    let total_missing = needs_action.len() + plan.unresolved.len();
-    if total_missing == 0 {
+    if plan.unresolved.is_empty() {
         return Ok(());
     }
 
-    for name in &needs_action {
-        eprintln!("missing: {name}");
-    }
     for name in &plan.unresolved {
-        eprintln!("missing: {name} (unresolvable)");
+        eprintln!("unresolved: {name}");
     }
     color_eyre::eyre::bail!(
-        "{total_missing} dependencies are not installed. Run `rosup resolve` first.\n\
-         hint: rosup resolve --dry-run    # preview what will be installed\n\
-         hint: rosup resolve              # install missing deps\n\
-         hint: rosup resolve -y           # non-interactive (no prompts)"
+        "{} dependency(ies) cannot be resolved. Fix them before building.\n\
+         hint: rosup resolve --dry-run    # see the full resolution plan\n\
+         hint: rosup exclude --pkg <name> # exclude the package that needs them\n\
+         hint: add to [resolve] ignore-deps in rosup.toml to suppress",
+        plan.unresolved.len()
     );
 }
 

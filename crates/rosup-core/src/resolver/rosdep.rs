@@ -70,11 +70,11 @@ pub fn install(keys: &[&str], distro: &str, dry_run: bool, yes: bool) -> Result<
     let pkg_xml = format!(
         "<?xml version=\"1.0\"?>\n\
          <package format=\"3\">\n\
-           <name>_rosup_install</name>\n\
+           <name>rosup_install_helper</name>\n\
            <version>0.0.0</version>\n\
-           <description>rosup install helper</description>\n\
-           <maintainer email=\"x@x.x\">x</maintainer>\n\
-           <license>N/A</license>\n\
+           <description>Temporary package for rosup dependency installation</description>\n\
+           <maintainer email=\"rosup@users.noreply.github.com\">rosup</maintainer>\n\
+           <license>Apache-2.0</license>\n\
          {dep_lines}</package>\n"
     );
     std::fs::write(tmp.path().join("package.xml"), pkg_xml).map_err(RosdepError::Io)?;
