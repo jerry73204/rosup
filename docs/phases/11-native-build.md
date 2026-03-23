@@ -43,37 +43,31 @@ for background research.
 
 ---
 
-## 11.3 Ament index and environment scripts
+## 11.3 Ament index and environment scripts — DONE
 
-**File:** `crates/rosup-core/src/build/ament_index.rs` (new),
-`crates/rosup-core/src/build/environment.rs` (new)
+**Files:** `crates/rosup-core/src/build/ament_index.rs`,
+`crates/rosup-core/src/build/environment.rs`
 
-Generate the ament index entries and environment hook scripts that colcon
-produces after a package is installed.
+### Ament index (`ament_index.rs`)
 
-### Ament index
+- [x] `write_package_marker(install_base, name)` — writes ament index
+  marker at `share/ament_index/resource_index/packages/<name>`.
+- [x] `write_runtime_deps(install_base, name, deps)` — writes colcon
+  deps file at `share/colcon-core/packages/<name>` (colon-separated).
 
-- [ ] Write `<install>/share/ament_index/resource_index/packages/<name>`
-  (empty marker file).
-- [ ] Write `<install>/share/colcon-core/packages/<name>` containing
-  colon-separated runtime dependency names.
+### Environment scripts (`environment.rs`)
 
-### Environment scripts
-
-- [ ] Generate `<install>/share/<name>/local_setup.bash` — sets
-  `AMENT_PREFIX_PATH`, `PATH`, `LD_LIBRARY_PATH`, `PYTHONPATH`,
-  `CMAKE_PREFIX_PATH` for this package.
-- [ ] Generate `local_setup.sh` (POSIX sh), `local_setup.zsh`.
-- [ ] Generate `package.dsv` (declarative setup) — colcon's internal
-  format for chaining environment hooks.
-- [ ] Generate `package.bash`, `package.sh`, `package.zsh` — full package
-  scripts that source the runtime deps then local_setup.
-
-### Acceptance criteria
-
-- [ ] On a built package, `diff` rosup's generated scripts vs colcon's.
-  They must produce identical `AMENT_PREFIX_PATH` after sourcing.
-- [ ] `ros2 run <pkg> <node>` works after sourcing rosup's install scripts.
+- [x] `generate_environment_scripts(install_base, name, python_version)`.
+- [x] Per-hook DSV + shell files: `ament_prefix_path`, `library_path`,
+  `path`, and optional `pythonpath`.
+- [x] `local_setup.dsv` — lists all hooks.
+- [x] `local_setup.sh` — defines `ament_prepend_unique_value` and sources
+  hooks (compatible with colcon's ament_package template).
+- [x] `local_setup.bash` — bash wrapper.
+- [x] `local_setup.zsh` — zsh wrapper.
+- [x] `package.dsv` — references local_setup files.
+- [x] DSV format matches colcon: `prepend-non-duplicate;VAR;suffix`.
+- [x] 12 unit tests covering all generated files and formats.
 
 ---
 

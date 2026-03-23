@@ -4,5 +4,7 @@
 //! topological ordering, package selection, build task dispatch,
 //! and parallel execution.
 
+pub mod ament_index;
+pub mod environment;
 pub mod selection;
 pub mod topo;
