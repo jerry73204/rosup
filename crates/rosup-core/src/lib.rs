@@ -1,3 +1,4 @@
+pub mod build;
 pub mod builder;
 pub mod config;
 pub mod init;
