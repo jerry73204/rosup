@@ -7,4 +7,5 @@
 pub mod ament_index;
 pub mod environment;
 pub mod selection;
+pub mod task;
 pub mod topo;

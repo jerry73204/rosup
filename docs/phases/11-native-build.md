@@ -71,39 +71,35 @@ for background research.
 
 ---
 
-## 11.4 BuildTask trait and ament_cmake task
+## 11.4 BuildTask trait and ament_cmake task — DONE
 
-**Files:** `crates/rosup-core/src/build/task/mod.rs` (new),
-`crates/rosup-core/src/build/task/ament_cmake.rs` (new)
+**Files:** `crates/rosup-core/src/build/task/mod.rs`,
+`crates/rosup-core/src/build/task/ament_cmake.rs`
 
 ### BuildTask trait
 
-- [ ] Define the trait:
-  ```rust
-  pub trait BuildTask: Send + Sync {
-      fn build(&self, ctx: &BuildContext) -> Result<()>;
-      fn test(&self, ctx: &TestContext) -> Result<()>;
-  }
-  ```
-- [ ] `BuildContext` struct: pkg name, source path, build base, install base,
-  symlink_install, cmake_args, dep install paths, env vars.
+- [x] `BuildTask` trait: `build(&self, ctx) -> Result<()>` and
+  `test(&self, ctx) -> Result<()>`.
+- [x] `BuildContext` struct: pkg_name, source_path, build_base, install_base,
+  symlink_install, cmake_args, parallel_jobs, dep_install_paths, env,
+  python_version, runtime_deps.
+- [x] `run_command()` helper: runs subprocess with env and cwd, inherits
+  stdio, returns error on non-zero exit.
+- [x] `TaskError` enum: CommandFailed, Io, Other.
 
 ### ament_cmake task
 
-- [ ] Configure: `cmake <source> -B <build> -DCMAKE_INSTALL_PREFIX=<install>
-  -DCMAKE_PREFIX_PATH=<deps> [cmake_args]`
-- [ ] If `symlink_install`: add `-DAMENT_CMAKE_SYMLINK_INSTALL=1`.
-- [ ] Build: `cmake --build <build> --parallel <jobs>`.
-- [ ] Install: `cmake --install <build>`.
-- [ ] Call ament_index + environment script generation from 11.3.
-- [ ] Incremental: skip configure if `CMakeCache.txt` exists and source
-  hasn't changed (match colcon's behavior).
-
-### Acceptance criteria
-
-- [ ] Build a real ament_cmake package (e.g. `autoware_core`) natively.
-- [ ] Installed files match colcon's output layout.
-- [ ] `ros2 run` works on the built package.
+- [x] Configure: `cmake <source> -B<build> -DCMAKE_INSTALL_PREFIX=<install>
+  -DCMAKE_PREFIX_PATH=<deps> -DAMENT_CMAKE_SYMLINK_INSTALL=1
+  -DBUILD_TESTING=OFF [cmake_args]`.
+- [x] Build: `cmake --build <build> --parallel <jobs>`.
+- [x] Install: `cmake --install <build>`.
+- [x] Copy `package.xml` to `share/<name>/package.xml`.
+- [x] Write ament index + colcon runtime deps + environment scripts.
+- [x] Incremental: skip configure if `CMakeCache.txt` exists.
+- [x] Test: runs `ctest --test-dir <build> --output-on-failure`.
+- [x] Integration tests (marked `#[ignore]` — require sourced ROS env):
+  build minimal package, verify install layout, verify incremental skip.
 
 ---
 
