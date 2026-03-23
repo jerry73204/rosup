@@ -27,25 +27,19 @@ for background research.
 
 ---
 
-## 11.2 Package selection
+## 11.2 Package selection — DONE
 
-**File:** `crates/rosup-core/src/build/selection.rs` (new)
+**File:** `crates/rosup-core/src/build/selection.rs`
 
-Implement `--packages-select`, `--packages-skip`, `--packages-up-to` logic
-on top of the topological order.
-
-- [ ] `select(ordered, select, skip, up_to) -> Vec<PackageNode>`: filters
-  the ordered list.
-- [ ] `--packages-select A B` → only A and B.
-- [ ] `--packages-skip A B` → everything except A and B.
-- [ ] `--packages-up-to A` → A and all its transitive dependencies.
-- [ ] Combinations: `--packages-up-to A --packages-skip B` works correctly.
-- [ ] Unit tests for each flag and combinations.
-
-### Acceptance criteria
-
-- [ ] Output matches `colcon list --topological-order --packages-*` for
-  the same flags.
+- [x] `SelectionFilter` struct: `select`, `skip`, `up_to` fields.
+- [x] `apply_selection(packages, filter) -> Vec<PackageNode>`.
+- [x] `select` → only named packages (unknown names silently ignored).
+- [x] `skip` → everything except named packages.
+- [x] `up_to` → named packages + transitive dep closure (BFS).
+- [x] `up_to` + `skip` combination works.
+- [x] Preserves input order.
+- [x] 8 unit tests: no filter, select, skip, up_to transitive, up_to + skip,
+  unknown package, diamond deps, order preservation.
 
 ---
 
