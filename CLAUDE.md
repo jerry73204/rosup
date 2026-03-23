@@ -11,12 +11,17 @@ Use `just` for all routine tasks. Do **not** call `cargo` directly unless you
 need flags or options not exposed by the justfile.
 
 ```
-just build    # cargo build --all-targets (dev-release profile)
-just check    # nightly fmt check + clippy -D warnings
-just test     # cargo nextest run --no-fail-fast
-just ci       # check + test
-just run ...  # run the rosup CLI, e.g. just run --help
-just install  # cargo install --path crates/rosup-cli
+just build             # cargo build --all-targets (dev-release profile)
+just check             # nightly fmt check + clippy -D warnings
+just test              # unit + integration tests (no ROS env needed)
+just test-unit         # unit tests only (rosup-core)
+just test-integration  # integration tests only (rosup-tests, spawns rosup binary)
+just test-ros          # native build tests (requires sourced ROS env)
+just test-all          # ci + test-ros
+just ci                # check + test (for CI)
+just run ...           # run the rosup CLI, e.g. just run --help
+just install           # cargo install --path crates/rosup-cli
+just test-workspace <path> [--distro <d>] [--exclude <pat>...]  # test against real workspace
 ```
 
 **Run `just ci` before marking any implementation task complete.**

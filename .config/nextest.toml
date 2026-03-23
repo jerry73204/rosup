@@ -1,3 +1,6 @@
+# nextest configuration
+# See: https://nexte.st/book/configuration.html
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 2 }
 fail-fast = false

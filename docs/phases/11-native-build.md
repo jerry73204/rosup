@@ -206,25 +206,67 @@ Replace the current colcon delegation with the native engine.
 
 ---
 
-## 11.10 Compatibility test suite
+## 11.10 Testing infrastructure and compatibility suite
 
-**File:** `crates/rosup-tests/tests/native_build.rs` (new)
+### Test levels
 
-Verify colcon-compatible output.
+Tests are split into tiers based on what they need to run:
 
-- [ ] Build a minimal ament_cmake package natively, verify ament index
-  and env scripts match colcon.
+| Tier | What | Deps | Run with |
+|------|------|------|----------|
+| **Unit** | Pure logic: topo sort, selection, ament_index, env scripts | None | `just test-unit` |
+| **Integration** | Spawn rosup binary, use shims | Shims built | `just test-integration` |
+| **ROS** | Invoke cmake/colcon, need ament_cmake | Sourced ROS env | `just test-ros` |
+| **Workspace** | Full workspace build, compare to colcon | Real workspace | `just test-workspace <path>` |
+
+### nextest configuration (`.config/nextest.toml`)
+
+- [x] `integration` test group — rosup-tests crate, max 8 threads.
+- [x] `native-build` test group — ament_cmake tests, max 1 thread,
+  60s timeout.
+- [x] `#[ignore]` for ROS-dependent tests — `just test-ros` runs them
+  with `--run-ignored ignored-only`.
+
+### justfile recipes
+
+- [x] `just test-unit` — unit tests only (no external deps).
+- [x] `just test-integration` — builds shims + rosup, runs rosup-tests.
+- [x] `just test` — unit + integration (fast, no ROS needed).
+- [x] `just test-ros` — ROS-dependent tests (requires sourced env).
+- [x] `just test-all` — CI + ROS tests.
+- [x] `just test-workspace <path>` — test against real workspace.
+
+### Unit tests per module (already done)
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| `build/topo.rs` | 8 | linear, diamond, parallel, cycle, external deps |
+| `build/selection.rs` | 8 | select, skip, up_to, combinations, order |
+| `build/ament_index.rs` | 3 | marker, runtime deps, empty deps |
+| `build/environment.rs` | 9 | all scripts and DSV formats |
+| `build/task/ament_cmake.rs` | 2 `#[ignore]` | full build, incremental |
+
+### Compatibility tests (TODO)
+
+- [ ] `crates/rosup-tests/tests/native_build.rs`: build a minimal
+  ament_cmake package with `--native`, then source the install and
+  verify `AMENT_PREFIX_PATH` matches colcon's output.
 - [ ] Build a minimal ament_python package natively, verify install layout.
-- [ ] Build a multi-package workspace, verify topological order.
+- [ ] Build a multi-package workspace, verify topological order matches
+  `colcon list --topological-order`.
 - [ ] Build with `--symlink-install`, verify symlinks created.
 - [ ] Build with `--continue-on-error`, verify failed pkg doesn't block
   independent packages.
-- [ ] Test PyO3 bridge with a mock Python plugin.
+- [ ] Test PyO3 bridge with a mock Python plugin (requires Python).
+- [ ] Diff test: source colcon's install vs rosup's install, compare
+  `AMENT_PREFIX_PATH`, `PATH`, `LD_LIBRARY_PATH`, `PYTHONPATH`.
 
-### Acceptance criteria
+### Workspace smoke tests
 
-- [ ] Test suite runs in CI alongside existing tests.
-- [ ] Autoware workspace builds identically with `--native` and `--colcon`.
+- [ ] Autoware 1.5.0 (455 packages) builds identically with
+  `--native` and `--colcon`.
+- [ ] AutoSDV with excludes builds correctly.
+- [ ] cuda_ndt_matcher with mixed Rust+ROS builds correctly.
 
 ---
 
@@ -232,24 +274,24 @@ Verify colcon-compatible output.
 
 ```
 Phase 11.1–11.3  │  Foundation: topo sort, selection, env scripts
-                  │  No user-visible change yet. Can test in isolation.
+                  │  No user-visible change yet. Tested in isolation.
                   │
 Phase 11.4–11.5  │  Core tasks: ament_cmake, ament_python
-                  │  Can build real packages but not wired into CLI.
+                  │  Can build real packages. Test with `just test-ros`.
                   │
 Phase 11.6       │  Executor: parallel builds
-                  │  Feature-complete for built-in types.
+                  │  Feature-complete. Stress test with Autoware.
                   │
 Phase 11.7       │  PyO3 bridge: existing plugin compat
-                  │  All package types supported.
+                  │  Test with colcon-cargo-ros2 in cuda_ndt_matcher.
                   │
 Phase 11.8       │  Subprocess protocol: future-proof plugin system
-                  │  Optional, not blocking.
+                  │  Test with a minimal rosup-task-echo binary.
                   │
 Phase 11.9       │  CLI integration: --native flag
-                  │  User can opt in to native builds.
+                  │  All justfile test recipes must pass.
                   │
-Phase 11.10      │  Compat tests: verify against colcon
+Phase 11.10      │  Compat tests + diff against colcon
                   │  Make --native the default.
 ```
 
@@ -257,7 +299,7 @@ Phase 11.10      │  Compat tests: verify against colcon
 
 Switch the default from `--colcon` to `--native` when:
 
-1. Autoware (455 packages) builds identically with both
-2. All integration tests pass with `--native`
-3. PyO3 bridge handles `ros.ament_cargo` correctly
-4. No user-reported regressions after 2 weeks of opt-in testing
+1. `just test-all` passes (unit + integration + ROS)
+2. `just test-workspace ~/repos/autoware/1.5.0-ws --distro humble` passes
+3. PyO3 bridge handles `ros.ament_cargo` in cuda_ndt_matcher
+4. Diff test shows identical env after sourcing rosup vs colcon install
