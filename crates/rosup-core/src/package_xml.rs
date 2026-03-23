@@ -31,17 +31,88 @@ pub struct PackageManifest {
     pub deps: Dependencies,
 }
 
+/// A single dependency with optional version constraints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dependency {
+    pub name: String,
+    /// Version constraints from package.xml attributes.
+    pub version: VersionConstraint,
+}
+
+impl Dependency {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: VersionConstraint::default(),
+        }
+    }
+}
+
+impl Dependencies {
+    /// Helper: extract names from a dep list (for assertions).
+    pub fn names(deps: &[Dependency]) -> Vec<&str> {
+        deps.iter().map(|d| d.name.as_str()).collect()
+    }
+}
+
+/// Optional version constraint attributes from package.xml format 3.
+///
+/// Two attributes can be combined to describe a range
+/// (e.g. `version_gte="1.1" version_lt="2.0"`).
+/// Colcon parses these but does not enforce them at build time —
+/// they are used by bloom for Debian dependency generation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionConstraint {
+    pub version_eq: Option<String>,
+    pub version_gte: Option<String>,
+    pub version_gt: Option<String>,
+    pub version_lte: Option<String>,
+    pub version_lt: Option<String>,
+}
+
+impl VersionConstraint {
+    pub fn is_empty(&self) -> bool {
+        self.version_eq.is_none()
+            && self.version_gte.is_none()
+            && self.version_gt.is_none()
+            && self.version_lte.is_none()
+            && self.version_lt.is_none()
+    }
+}
+
+impl std::fmt::Display for VersionConstraint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        if let Some(v) = &self.version_eq {
+            parts.push(format!("=={v}"));
+        }
+        if let Some(v) = &self.version_gte {
+            parts.push(format!(">={v}"));
+        }
+        if let Some(v) = &self.version_gt {
+            parts.push(format!(">{v}"));
+        }
+        if let Some(v) = &self.version_lte {
+            parts.push(format!("<={v}"));
+        }
+        if let Some(v) = &self.version_lt {
+            parts.push(format!("<{v}"));
+        }
+        write!(f, "{}", parts.join(", "))
+    }
+}
+
 /// All dependency types from package.xml format 3.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Dependencies {
     /// `<depend>` — build + build_export + exec
-    pub depend: Vec<String>,
-    pub build_depend: Vec<String>,
-    pub build_export_depend: Vec<String>,
-    pub buildtool_depend: Vec<String>,
-    pub exec_depend: Vec<String>,
-    pub test_depend: Vec<String>,
-    pub doc_depend: Vec<String>,
+    pub depend: Vec<Dependency>,
+    pub build_depend: Vec<Dependency>,
+    pub build_export_depend: Vec<Dependency>,
+    pub buildtool_depend: Vec<Dependency>,
+    pub exec_depend: Vec<Dependency>,
+    pub test_depend: Vec<Dependency>,
+    pub doc_depend: Vec<Dependency>,
 }
 
 impl Dependencies {
@@ -49,7 +120,7 @@ impl Dependencies {
     pub fn all(&self) -> Vec<&str> {
         let mut seen = std::collections::HashSet::new();
         let mut result = Vec::new();
-        for name in self
+        for dep in self
             .depend
             .iter()
             .chain(&self.build_depend)
@@ -59,8 +130,8 @@ impl Dependencies {
             .chain(&self.test_depend)
             .chain(&self.doc_depend)
         {
-            if seen.insert(name.as_str()) {
-                result.push(name.as_str());
+            if seen.insert(dep.name.as_str()) {
+                result.push(dep.name.as_str());
             }
         }
         result
@@ -140,11 +211,14 @@ pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlEr
     let mut build_type: Option<String> = None;
     let mut deps = Dependencies::default();
 
-    // Stack of open element names so we know the current path.
-    // We only need to track depth-1 tags and `export > build_type`.
-    // Track whether the current element has a ROS 1 condition.
-    let mut tag_stack: Vec<String> = Vec::new();
-    let mut skip_ros1: Vec<bool> = Vec::new();
+    // Per-element state tracked alongside the tag stack.
+    struct ElementState {
+        tag: String,
+        skip: bool,
+        version: VersionConstraint,
+    }
+
+    let mut stack: Vec<ElementState> = Vec::new();
 
     loop {
         match reader.read_event().map_err(map_err)? {
@@ -152,56 +226,82 @@ pub fn parse_str(xml: &str, path: &Path) -> Result<PackageManifest, PackageXmlEr
                 let tag = std::str::from_utf8(e.name().as_ref())
                     .unwrap_or("")
                     .to_owned();
-                // Evaluate `condition` attribute (REP-149). rosup only
-                // supports ROS 2, so we substitute $ROS_VERSION=2 and
-                // evaluate simple comparisons. Complex conditions we
-                // can't evaluate are treated as true (conservative).
-                let should_skip = e.attributes().flatten().any(|attr| {
-                    attr.key.as_ref() == b"condition"
-                        && !eval_condition(&String::from_utf8_lossy(&attr.value))
+                let mut skip = false;
+                let mut ver = VersionConstraint::default();
+                for attr in e.attributes().flatten() {
+                    let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
+                    let val = String::from_utf8_lossy(&attr.value).into_owned();
+                    match key {
+                        "condition" => {
+                            if !eval_condition(&val) {
+                                skip = true;
+                            }
+                        }
+                        "version_eq" => ver.version_eq = Some(val),
+                        "version_gte" => ver.version_gte = Some(val),
+                        "version_gt" => ver.version_gt = Some(val),
+                        "version_lte" => ver.version_lte = Some(val),
+                        "version_lt" => ver.version_lt = Some(val),
+                        _ => {}
+                    }
+                }
+                stack.push(ElementState {
+                    tag,
+                    skip,
+                    version: ver,
                 });
-                tag_stack.push(tag);
-                skip_ros1.push(should_skip);
             }
             Event::End(_) => {
-                tag_stack.pop();
-                skip_ros1.pop();
+                stack.pop();
             }
             Event::Text(e) => {
-                // Skip elements with ROS 1 condition.
-                if skip_ros1.last() == Some(&true) {
+                let state = match stack.last() {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if state.skip {
                     continue;
                 }
                 let text = e.unescape().map_err(map_err)?.into_owned();
                 if text.is_empty() {
                     continue;
                 }
-                match tag_stack.as_slice() {
-                    [.., parent, current] => {
-                        if parent == "export" && current == "build_type" {
-                            build_type = Some(text);
-                            continue;
-                        }
-                        match current.as_str() {
-                            "name" => name = Some(text),
-                            "version" => version = Some(text),
-                            "description" => description = Some(text),
-                            "depend" => deps.depend.push(text),
-                            "build_depend" => deps.build_depend.push(text),
-                            "build_export_depend" => deps.build_export_depend.push(text),
-                            "buildtool_depend" => deps.buildtool_depend.push(text),
-                            "exec_depend" => deps.exec_depend.push(text),
-                            "test_depend" => deps.test_depend.push(text),
-                            "doc_depend" => deps.doc_depend.push(text),
-                            _ => {}
-                        }
+                let make_dep = |name: String, ver: &VersionConstraint| Dependency {
+                    name,
+                    version: ver.clone(),
+                };
+                // Check depth: [.., parent, current] or [current].
+                let depth = stack.len();
+                let current_tag = &state.tag;
+                let parent_tag = if depth >= 2 {
+                    Some(stack[depth - 2].tag.as_str())
+                } else {
+                    None
+                };
+
+                if parent_tag == Some("export") && current_tag == "build_type" {
+                    build_type = Some(text);
+                    continue;
+                }
+                match current_tag.as_str() {
+                    "name" if parent_tag.is_some() => name = Some(text),
+                    "version" if parent_tag.is_some() => version = Some(text),
+                    "description" if parent_tag.is_some() => description = Some(text),
+                    "depend" => deps.depend.push(make_dep(text, &state.version)),
+                    "build_depend" => deps.build_depend.push(make_dep(text, &state.version)),
+                    "build_export_depend" => {
+                        deps.build_export_depend
+                            .push(make_dep(text, &state.version));
                     }
-                    [current] => match current.as_str() {
-                        "name" => name = Some(text),
-                        "version" => version = Some(text),
-                        "description" => description = Some(text),
-                        _ => {}
-                    },
+                    "buildtool_depend" => {
+                        deps.buildtool_depend.push(make_dep(text, &state.version));
+                    }
+                    "exec_depend" => deps.exec_depend.push(make_dep(text, &state.version)),
+                    "test_depend" => deps.test_depend.push(make_dep(text, &state.version)),
+                    "doc_depend" => deps.doc_depend.push(make_dep(text, &state.version)),
+                    "name" if parent_tag.is_none() => name = Some(text),
+                    "version" if parent_tag.is_none() => version = Some(text),
+                    "description" if parent_tag.is_none() => description = Some(text),
                     _ => {}
                 }
             }
@@ -237,9 +337,18 @@ mod tests {
         let manifest = parse_str(&fixture("package_xml/basic.xml"), &dummy_path()).unwrap();
         assert_eq!(manifest.name, "my_robot_nav");
         assert_eq!(manifest.version, "0.1.0");
-        assert_eq!(manifest.deps.depend, vec!["rclcpp", "sensor_msgs"]);
-        assert_eq!(manifest.deps.buildtool_depend, vec!["ament_cmake"]);
-        assert_eq!(manifest.deps.test_depend, vec!["ament_cmake_gtest"]);
+        assert_eq!(
+            Dependencies::names(&manifest.deps.depend),
+            vec!["rclcpp", "sensor_msgs"]
+        );
+        assert_eq!(
+            Dependencies::names(&manifest.deps.buildtool_depend),
+            vec!["ament_cmake"]
+        );
+        assert_eq!(
+            Dependencies::names(&manifest.deps.test_depend),
+            vec!["ament_cmake_gtest"]
+        );
         assert_eq!(manifest.build_type, None);
     }
 
@@ -264,32 +373,59 @@ mod tests {
             &dummy_path(),
         )
         .unwrap();
-        assert_eq!(manifest.deps.depend, vec!["rclcpp", "tf2"]);
-        assert_eq!(manifest.deps.exec_depend, vec!["sensor_msgs"]);
+        assert_eq!(
+            Dependencies::names(&manifest.deps.depend),
+            vec!["rclcpp", "tf2"]
+        );
+        assert_eq!(
+            Dependencies::names(&manifest.deps.exec_depend),
+            vec!["sensor_msgs"]
+        );
     }
 
     #[test]
     fn conditional_deps_skip_ros1() {
         let manifest =
             parse_str(&fixture("package_xml/conditional_deps.xml"), &dummy_path()).unwrap();
+        let dep_names = Dependencies::names(&manifest.deps.depend);
+        let bt_names = Dependencies::names(&manifest.deps.buildtool_depend);
         // ROS 2 deps should be present.
-        assert!(manifest.deps.depend.contains(&"rclcpp".to_owned()));
-        assert!(manifest.deps.depend.contains(&"sensor_msgs".to_owned()));
-        assert!(manifest.deps.depend.contains(&"std_msgs".to_owned()));
-        assert_eq!(
-            manifest.deps.buildtool_depend,
-            vec!["ament_cmake".to_owned()]
-        );
+        assert!(dep_names.contains(&"rclcpp"));
+        assert!(dep_names.contains(&"sensor_msgs"));
+        assert!(dep_names.contains(&"std_msgs"));
+        assert_eq!(bt_names, vec!["ament_cmake"]);
         assert_eq!(manifest.build_type.as_deref(), Some("ament_cmake"));
         // ROS 1 deps should be absent.
-        assert!(!manifest.deps.depend.contains(&"roscpp".to_owned()));
-        assert!(!manifest.deps.depend.contains(&"roslib".to_owned()));
-        assert!(
-            !manifest
-                .deps
-                .buildtool_depend
-                .contains(&"catkin".to_owned())
-        );
+        assert!(!dep_names.contains(&"roscpp"));
+        assert!(!dep_names.contains(&"roslib"));
+        assert!(!bt_names.contains(&"catkin"));
+    }
+
+    #[test]
+    fn parses_version_constraints() {
+        let manifest = parse_str(
+            &fixture("package_xml/with_version_constraints.xml"),
+            &dummy_path(),
+        )
+        .unwrap();
+        // genmsg has version_gte + version_lt
+        let genmsg = &manifest.deps.build_depend[0];
+        assert_eq!(genmsg.name, "genmsg");
+        assert_eq!(genmsg.version.version_gte.as_deref(), Some("1.1"));
+        assert_eq!(genmsg.version.version_lt.as_deref(), Some("2.0"));
+        assert!(genmsg.version.version_eq.is_none());
+        assert_eq!(genmsg.version.to_string(), ">=1.1, <2.0");
+
+        // rclcpp has no constraints
+        let rclcpp = &manifest.deps.depend[0];
+        assert_eq!(rclcpp.name, "rclcpp");
+        assert!(rclcpp.version.is_empty());
+
+        // python_qt_binding has version_gte only
+        let pqb = &manifest.deps.exec_depend[0];
+        assert_eq!(pqb.name, "python_qt_binding");
+        assert_eq!(pqb.version.version_gte.as_deref(), Some("0.3.0"));
+        assert_eq!(pqb.version.to_string(), ">=0.3.0");
     }
 
     #[test]

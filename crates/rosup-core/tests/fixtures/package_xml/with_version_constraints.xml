@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>constrained_pkg</name>
+  <version>1.0.0</version>
+  <description>Package with version-constrained dependencies</description>
+  <maintainer email="x@x.com">X</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend version_gte="1.1" version_lt="2.0">genmsg</build_depend>
+  <depend>rclcpp</depend>
+  <exec_depend version_gte="0.3.0">python_qt_binding</exec_depend>
+</package>
