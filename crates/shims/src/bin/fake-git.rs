@@ -4,8 +4,10 @@
 //! Implements the minimal subset used by rosup:
 //!   - `clone --bare <url> <dest>` → creates `<dest>/objects/`
 //!   - `worktree add --detach <wt> <ref>` → creates `<wt>/`
+//!   - `worktree add --no-checkout --detach <wt> <ref>` → creates `<wt>/` (sparse)
 //!   - `clone --branch <br> <url> <dest>` → creates `<dest>/` with stub package.xml
-//!   - `fetch`, `reset` → no-op
+//!   - `fetch`, `reset`, `config`, `rev-parse`, `read-tree` → no-op or stub
+//!   - `sparse-checkout` → no-op (sparse config managed via files in real code)
 //!
 //! For regular clones, sets `FAKE_GIT_PKG_XMLS=pkg_a,pkg_b` to create
 //! subdirectory package.xml files (workspace layout).  Without that env var a
@@ -48,7 +50,11 @@ fn main() {
         "clone" => {
             let is_bare = rest.contains(&"--bare");
             // Last non-flag argument is the destination path.
-            let dest = rest.iter().rfind(|a| !a.starts_with('-')).copied();
+            // Skip --filter=... values as they look like non-flag args.
+            let dest = rest
+                .iter()
+                .rfind(|a| !a.starts_with('-') && !a.starts_with("--filter"))
+                .copied();
 
             if let Some(dest) = dest {
                 let dest_path = PathBuf::from(dest);
@@ -74,13 +80,35 @@ fn main() {
             }
         }
         "worktree" => {
-            // git worktree add [--quiet] [--detach] <wt_path> <ref>
+            // git worktree add [--quiet] [--detach] [--no-checkout] <wt_path> <ref>
             if rest.first().copied() == Some("add") {
                 let wt = rest[1..].iter().find(|a| !a.starts_with('-')).copied();
                 if let Some(wt) = wt {
                     let _ = fs::create_dir_all(wt);
+                    // Create a fake .git file so the worktree is recognised.
+                    // In sparse mode, source_pull will write sparse-checkout
+                    // config into this directory.
+                    let git_file = PathBuf::from(wt).join(".git");
+                    let gitdir = PathBuf::from(wt).join(".gitdir");
+                    let _ = fs::create_dir_all(gitdir.join("info"));
+                    let _ = fs::write(&git_file, format!("gitdir: {}", gitdir.display()));
                 }
             }
+        }
+        "rev-parse" => {
+            // git rev-parse --git-dir → print the .gitdir path.
+            if rest.contains(&"--git-dir") {
+                let cwd = env::current_dir().unwrap_or_default();
+                let gitdir = cwd.join(".gitdir");
+                if gitdir.exists() {
+                    println!("{}", gitdir.display());
+                } else {
+                    println!(".git");
+                }
+            }
+        }
+        "config" | "read-tree" | "sparse-checkout" => {
+            // No-op stubs for sparse checkout operations.
         }
         // fetch, reset, init → no-op
         _ => {}

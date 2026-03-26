@@ -225,6 +225,10 @@ enum Command {
         /// Assume yes to all prompts (non-interactive)
         #[arg(short = 'y', long)]
         yes: bool,
+        /// Use shallow clones (--depth=1) for source deps — faster but
+        /// cannot switch branches without re-fetching
+        #[arg(long)]
+        shallow: bool,
     },
     /// Generate shell completions
     Completions {
@@ -318,7 +322,8 @@ fn main() -> Result<()> {
             source_only,
             refresh,
             yes,
-        } => cmd_resolve(dry_run, source_only, refresh, yes),
+            shallow,
+        } => cmd_resolve(dry_run, source_only, refresh, yes, shallow),
         Command::Build {
             packages,
             deps,
@@ -1080,7 +1085,13 @@ fn cmd_remove(dep: String, package: Option<String>) -> Result<()> {
 
 // ── resolve ───────────────────────────────────────────────────────────────────
 
-fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool, yes: bool) -> Result<()> {
+fn cmd_resolve(
+    dry_run: bool,
+    source_only: bool,
+    refresh: bool,
+    yes: bool,
+    shallow: bool,
+) -> Result<()> {
     let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
 
     // Resolve needs overlays sourced so ament checks and rosdep work correctly.
@@ -1144,7 +1155,7 @@ fn cmd_resolve(dry_run: bool, source_only: bool, refresh: bool, yes: bool) -> Re
     } else {
         // Non-dry-run: resolve and install. Abort on unresolved deps.
         let plan = resolver
-            .resolve(&dep_names, false, source_only, refresh, yes)
+            .resolve(&dep_names, false, source_only, refresh, yes, shallow)
             .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
         for dep in &plan.resolved {

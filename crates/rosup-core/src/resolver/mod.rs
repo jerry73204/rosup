@@ -10,6 +10,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::config::{DepOverride, ResolveConfig, SourcePreference};
+use crate::git::sparse::{self, SparseError};
 use rosdep::RosdepError;
 use rosdistro::DistroCache;
 use store::{GlobalStore, ProjectStore};
@@ -97,6 +98,8 @@ pub enum ResolverError {
     Io(#[from] std::io::Error),
     #[error("git error running `{cmd}`: {detail}")]
     Git { cmd: String, detail: String },
+    #[error("sparse checkout error: {0}")]
+    Sparse(#[from] SparseError),
     #[error("unresolved dependencies: {0:?}")]
     Unresolved(Vec<String>),
     #[error("no ROS distro configured — add ros-distro to [resolve] in rosup.toml")]
@@ -197,6 +200,8 @@ impl Resolver {
     ///
     /// `yes`: pass `--default-yes` to rosdep (non-interactive). When false,
     /// rosdep prompts interactively for confirmation.
+    ///
+    /// `shallow`: use `--depth=1` for initial bare clones (CI optimisation).
     pub fn resolve(
         &self,
         deps: &[String],
@@ -204,6 +209,7 @@ impl Resolver {
         source_only: bool,
         force_refresh: bool,
         yes: bool,
+        shallow: bool,
     ) -> Result<ResolutionPlan, ResolverError> {
         let plan = self.plan(deps, source_only, force_refresh)?;
 
@@ -215,7 +221,7 @@ impl Resolver {
             return Ok(plan);
         }
 
-        self.execute(&plan, yes)?;
+        self.execute(&plan, yes, shallow)?;
         Ok(plan)
     }
 
@@ -279,14 +285,18 @@ impl Resolver {
         None
     }
 
-    fn execute(&self, plan: &ResolutionPlan, yes: bool) -> Result<(), ResolverError> {
+    fn execute(
+        &self,
+        plan: &ResolutionPlan,
+        yes: bool,
+        shallow: bool,
+    ) -> Result<(), ResolverError> {
         let mut binary_keys: Vec<&str> = Vec::new();
 
         // Collect source repos, grouping by repo name.
         // Multiple packages from the same repo (e.g. sensor_msgs + std_msgs from
         // common_interfaces) produce a single bare clone and a single worktree.
-        // Value: (url, branch, rev)
-        let mut source_repos: HashMap<String, (String, String, Option<String>)> = HashMap::new();
+        let mut source_repos: HashMap<String, SourceRepo> = HashMap::new();
 
         for dep in &plan.resolved {
             match &dep.method {
@@ -300,20 +310,30 @@ impl Resolver {
                     binary_keys.push(&dep.name);
                 }
                 ResolutionMethod::Source { repo, url, branch } => {
-                    // First dep that references this repo wins for url/branch.
-                    source_repos
+                    let entry = source_repos
                         .entry(repo.clone())
-                        .or_insert_with(|| (url.clone(), branch.clone(), None));
+                        .or_insert_with(|| SourceRepo {
+                            url: url.clone(),
+                            branch: branch.clone(),
+                            rev: None,
+                            sparse_paths: Vec::new(),
+                        });
+                    // Multi-package repo: package lives in a subdirectory
+                    // named after itself (standard ROS convention).
+                    if *repo != dep.name {
+                        entry.sparse_paths.push(dep.name.clone());
+                    }
                 }
                 ResolutionMethod::Override { url, branch, rev } => {
                     // Override deps each get their own repo keyed by dep name.
-                    source_repos.entry(dep.name.clone()).or_insert_with(|| {
-                        (
-                            url.clone(),
-                            branch.clone().unwrap_or_else(|| "HEAD".to_owned()),
-                            rev.clone(),
-                        )
-                    });
+                    source_repos
+                        .entry(dep.name.clone())
+                        .or_insert_with(|| SourceRepo {
+                            url: url.clone(),
+                            branch: branch.clone().unwrap_or_else(|| "HEAD".to_owned()),
+                            rev: rev.clone(),
+                            sparse_paths: Vec::new(),
+                        });
                 }
             }
         }
@@ -322,15 +342,17 @@ impl Resolver {
             // Create project dirs only when we actually need them.
             self.project.ensure()?;
 
-            for (repo_name, (url, branch, rev)) in &source_repos {
-                info!("pulling {repo_name} from {url} @ {branch}");
+            for (repo_name, repo) in &source_repos {
+                info!("pulling {repo_name} from {} @ {}", repo.url, repo.branch);
                 source_pull(
                     &self.global,
                     &self.project,
                     repo_name,
-                    url,
-                    branch,
-                    rev.as_deref(),
+                    &repo.url,
+                    &repo.branch,
+                    repo.rev.as_deref(),
+                    &repo.sparse_paths,
+                    shallow,
                 )?;
             }
         }
@@ -346,6 +368,16 @@ impl Resolver {
 
 // ── source pull ───────────────────────────────────────────────────────────────
 
+/// Grouping of resolved source deps for a single repository.
+struct SourceRepo {
+    url: String,
+    branch: String,
+    rev: Option<String>,
+    /// Package subdirectories to sparse-checkout. Empty means full checkout
+    /// (single-package repo or all packages needed).
+    sparse_paths: Vec<String>,
+}
+
 /// Clone or update a source repository using a two-level bare clone + worktree model.
 ///
 /// # Global level (`~/.rosup/src/<repo>.git`)
@@ -356,6 +388,16 @@ impl Resolver {
 /// A git worktree checked out from the bare clone. Each project gets an
 /// isolated working directory at the pinned branch or rev. Two projects can
 /// use different branches of the same repo without conflicts.
+///
+/// # Sparse checkout
+/// When `sparse_paths` is non-empty (multi-package repos), only the listed
+/// subdirectories are checked out. This significantly reduces disk usage for
+/// large repos like `common_interfaces`.
+///
+/// # Shallow clone
+/// When `shallow` is true, the initial bare clone uses `--depth=1`. Faster
+/// for CI but cannot switch branches without re-fetching.
+#[allow(clippy::too_many_arguments)]
 pub fn source_pull(
     global: &GlobalStore,
     project: &ProjectStore,
@@ -363,10 +405,13 @@ pub fn source_pull(
     url: &str,
     branch: &str,
     rev: Option<&str>,
+    sparse_paths: &[String],
+    shallow: bool,
 ) -> Result<(), ResolverError> {
     let bare = global.bare_clone(repo_name);
     let worktree = project.worktree(repo_name);
     let target = rev.unwrap_or(branch);
+    let use_sparse = !sparse_paths.is_empty();
 
     // ── Step 1: ensure bare clone exists and is up to date ──────────────────
     if bare.exists() {
@@ -374,16 +419,34 @@ pub fn source_pull(
         git(&bare, &["fetch", "--quiet", "origin"])?;
     } else {
         info!("cloning {repo_name} from {url}");
-        let bare_str = bare.display().to_string();
-        git(&global.src, &["clone", "--bare", "--quiet", url, &bare_str])?;
+        if shallow {
+            sparse::shallow_bare_clone(url, &bare)?;
+        } else {
+            // Always use --filter=blob:none so git fetches blobs on demand.
+            // Saves bandwidth and disk on initial clone with no functional
+            // downside — objects are transparently fetched when checked out.
+            sparse::partial_bare_clone(url, &bare)?;
+        }
     }
 
     // ── Step 2: ensure per-project worktree is at the right commit ──────────
     if worktree.exists() {
         // Worktree already exists — reset to the target ref.
         git(&worktree, &["reset", "--quiet", "--hard", target])?;
+
+        // If sparse checkout is active, add any new paths.
+        if use_sparse && sparse::is_sparse(&worktree) {
+            let path_refs: Vec<&str> = sparse_paths.iter().map(String::as_str).collect();
+            sparse::sparse_add_paths(&worktree, &path_refs)?;
+        }
+    } else if use_sparse {
+        // Sparse checkout: add worktree with --no-checkout, configure sparse,
+        // then materialise only the needed directories.
+        sparse::sparse_worktree_add(&bare, &worktree, target)?;
+        let path_refs: Vec<&str> = sparse_paths.iter().map(String::as_str).collect();
+        sparse::sparse_init_and_checkout(&worktree, &path_refs)?;
     } else {
-        // Add a new detached worktree from the bare clone.
+        // Full checkout: add a new detached worktree from the bare clone.
         let worktree_str = worktree.display().to_string();
         git(
             &bare,

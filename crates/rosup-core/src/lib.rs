@@ -1,6 +1,7 @@
 pub mod build;
 pub mod builder;
 pub mod config;
+pub mod git;
 pub mod init;
 pub mod manifest;
 pub mod new;
