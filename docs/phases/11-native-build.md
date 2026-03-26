@@ -103,19 +103,22 @@ for background research.
 
 ---
 
-## 11.5 ament_python task
+## 11.5 ament_python task — DONE
 
-**File:** `crates/rosup-core/src/build/task/ament_python.rs` (new)
+**File:** `crates/rosup-core/src/build/task/ament_python.rs`
 
-- [ ] Install: `pip install [--editable] . --prefix <install>`.
-- [ ] Copy `package.xml` to `<install>/share/<name>/package.xml`.
-- [ ] Write ament index marker.
-- [ ] Generate environment scripts.
-
-### Acceptance criteria
-
-- [ ] Build a real ament_python package natively.
-- [ ] Python launch files and nodes are runnable.
+- [x] Install: `python3 -m pip install --no-deps --prefix <install> .`
+  Uses `--editable` when `symlink_install` is true.
+- [x] Copy `package.xml` to `share/<name>/package.xml` (symlink if
+  `symlink_install`).
+- [x] Write ament index marker (idempotent — some packages do it via
+  setup.py `data_files`).
+- [x] Write colcon runtime deps file.
+- [x] Generate environment scripts including PYTHONPATH hook
+  (`local/lib/python<ver>/dist-packages`).
+- [x] Test: runs `python3 -m pytest` with PYTHONPATH set.
+- [x] Integration test (marked `#[ignore]`): build minimal ament_python
+  package, verify install layout + pythonpath.dsv.
 
 ---
 

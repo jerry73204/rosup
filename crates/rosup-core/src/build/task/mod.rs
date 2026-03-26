@@ -5,6 +5,7 @@
 //! tasks are loaded via subprocess or PyO3.
 
 pub mod ament_cmake;
+pub mod ament_python;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
