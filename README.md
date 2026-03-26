@@ -117,12 +117,33 @@ rosup test -p my_pkg
 rosup test --retest-until-pass 3    # retry flaky tests up to 3 times
 ```
 
-### Resolve dependencies manually
+### Resolve dependencies
 
 ```sh
-rosup resolve                  # resolve and install
+rosup resolve                  # resolve and install (may prompt for sudo)
+rosup resolve -y               # non-interactive (no prompts, for CI/scripts)
 rosup resolve --dry-run        # show plan without installing
 rosup resolve --source-only    # force source pull, skip rosdep
+```
+
+`rosup build` checks deps but does not install them — run `rosup resolve` first.
+
+### Exclude workspace packages
+
+```sh
+rosup exclude 'src/localization/autoware_isaac_*'   # by path glob
+rosup exclude --pkg autoware_isaac_localization_launch  # by package name
+rosup exclude --list                                    # show excludes
+rosup include 'src/localization/autoware_isaac_*'       # re-include
+```
+
+### Ignore external dependencies
+
+```sh
+rosup ignore catkin            # ignore a ROS 1 dep in package.xml
+rosup ignore blickfeld-scanner # ignore a vendor-specific dep
+rosup ignore --list            # show ignored deps
+rosup unignore catkin          # stop ignoring
 ```
 
 ### Search the ROS package index
@@ -177,7 +198,7 @@ members = [
 
 ```toml
 [resolve]
-ros-distro = "humble"          # required
+ros-distro = "humble"          # or auto-detected from ROS_DISTRO env
 
 # Ament prefix paths, sourced underlay-first.
 # rosup new pre-populates this with /opt/ros/<distro>.
@@ -189,6 +210,9 @@ overlays = [
 # "auto" (default) tries binary first, falls back to source.
 # "binary" forces rosdep; "source" forces source pull.
 source-preference = "auto"
+
+# Ignore deps that are erroneous or platform-specific.
+ignore-deps = ["catkin", "roscpp", "blickfeld-scanner"]
 
 # Override resolution for a specific dep.
 [resolve.overrides.nav2_core]
@@ -220,14 +244,15 @@ retest-until-pass = 2
 
 ## How dependency resolution works
 
-For each dep in `package.xml`, in order:
+For each dep in `package.xml`, checked in priority order:
 
-1. **Ament environment** — already on `AMENT_PREFIX_PATH`? Done.
-2. **rosdep** — resolves to a system package and installs via apt/dnf/brew.
-3. **rosdistro source** — clones the upstream repo into `.rosup/src/`, backed by
+1. **Workspace member** — another package in the same workspace? Colcon builds it.
+2. **User override** — `[resolve.overrides]` in `rosup.toml` (patched fork, pin).
+3. **Ament environment** — already on `AMENT_PREFIX_PATH`? Done.
+4. **rosdep** — resolves to a system package and installs via apt/pip.
+5. **rosdistro source** — clones the upstream repo into `.rosup/src/`, backed by
    a bare clone cache in `~/.rosup/src/`.
-4. **User override** — `[resolve.overrides]` in `rosup.toml` takes precedence over
-   auto-resolution.
+6. **Unresolved** — error. Use `rosup ignore <dep>` to suppress.
 
 Source deps are built as a separate dep layer (`.rosup/build/`, `.rosup/install/`)
 before your workspace, so they are never mixed with your own build artifacts.
@@ -270,10 +295,15 @@ Global cache shared across all projects:
 | `rosup clone <pkg>`    | Clone a package from the ROS index                       |
 | `rosup add <dep>`      | Add a dependency to `package.xml`                        |
 | `rosup remove <dep>`   | Remove a dependency from `package.xml`                   |
-| `rosup build`          | Resolve deps and build                                   |
-| `rosup test`           | Resolve deps and run tests                               |
-| `rosup resolve`        | Resolve and install deps without building                |
+| `rosup resolve`        | Resolve and install deps (may need sudo)                 |
+| `rosup build`          | Check deps and build (never installs)                    |
+| `rosup test`           | Check deps and run tests                                 |
 | `rosup search <query>` | Search the ROS package index                             |
+| `rosup sync`           | Sync workspace member list in `rosup.toml`               |
+| `rosup exclude`        | Exclude workspace packages from discovery                |
+| `rosup include`        | Re-include excluded packages                             |
+| `rosup ignore <dep>`   | Ignore an external dependency during resolution          |
+| `rosup unignore <dep>` | Stop ignoring a dependency                               |
 | `rosup clean`          | Remove build artifacts                                   |
 
 Pass `--help` to any command for the full flag list.

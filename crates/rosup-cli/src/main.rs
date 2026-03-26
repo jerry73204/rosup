@@ -174,6 +174,19 @@ enum Command {
         #[arg(long, conflicts_with = "pattern")]
         pkg: Option<String>,
     },
+    /// Ignore an external dependency during resolution
+    Ignore {
+        /// Dependency name to ignore (or omit to list current ignores)
+        dep: Option<String>,
+        /// List currently ignored deps
+        #[arg(long)]
+        list: bool,
+    },
+    /// Stop ignoring an external dependency
+    Unignore {
+        /// Dependency name to stop ignoring
+        dep: String,
+    },
     /// Search the ROS package index
     Search {
         query: String,
@@ -298,6 +311,8 @@ fn main() -> Result<()> {
         Command::Remove { dep_name, package } => cmd_remove(dep_name, package),
         Command::Exclude { pattern, pkg, list } => cmd_exclude(pattern, pkg, list),
         Command::Include { pattern, pkg } => cmd_include(pattern, pkg),
+        Command::Ignore { dep, list } => cmd_ignore(dep, list),
+        Command::Unignore { dep } => cmd_unignore(dep),
         Command::Resolve {
             dry_run,
             source_only,
@@ -936,6 +951,87 @@ fn cmd_include(pattern: Option<String>, pkg: Option<String>) -> Result<()> {
     let patched = init::patch_exclude(&toml_text, &excludes);
     std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
     println!("Included {target}");
+    Ok(())
+}
+
+// ── ignore / unignore ─────────────────────────────────────────────────────────
+
+fn patch_ignore_deps(toml_text: &str, deps: &[String]) -> String {
+    let mut doc = toml_text
+        .parse::<toml_edit::DocumentMut>()
+        .expect("rosup.toml should be valid TOML");
+
+    let resolve = doc
+        .entry("resolve")
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()))
+        .as_table_like_mut()
+        .expect("[resolve] must be a table");
+
+    if deps.is_empty() {
+        resolve.remove("ignore-deps");
+    } else {
+        let mut arr = toml_edit::Array::new();
+        for d in deps {
+            arr.push(d.as_str());
+        }
+        resolve.insert("ignore-deps", toml_edit::value(arr));
+    }
+
+    doc.to_string()
+}
+
+fn cmd_ignore(dep: Option<String>, list: bool) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let current = &project.config.resolve.ignore_deps;
+
+    if list || dep.is_none() {
+        if current.is_empty() {
+            println!("No ignored dependencies.");
+        } else {
+            for d in current {
+                println!("{d}");
+            }
+        }
+        return Ok(());
+    }
+
+    let dep = dep.unwrap();
+    if current.contains(&dep) {
+        println!("Already ignored: {dep}");
+        return Ok(());
+    }
+
+    let mut new_deps = current.clone();
+    new_deps.push(dep.clone());
+    new_deps.sort();
+
+    let toml_path = project.root.join("rosup.toml");
+    let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
+    let patched = patch_ignore_deps(&toml_text, &new_deps);
+    std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
+    println!("Ignoring dependency: {dep}");
+    Ok(())
+}
+
+fn cmd_unignore(dep: String) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+
+    let mut new_deps = project.config.resolve.ignore_deps.clone();
+    let before = new_deps.len();
+    new_deps.retain(|d| d != &dep);
+
+    if new_deps.len() == before {
+        color_eyre::eyre::bail!("dependency `{dep}` is not in ignore-deps list");
+    }
+
+    let toml_path = project.root.join("rosup.toml");
+    let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
+    let patched = patch_ignore_deps(&toml_text, &new_deps);
+    std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
+    println!("No longer ignoring: {dep}");
     Ok(())
 }
 

@@ -312,6 +312,51 @@ rosup include 'src/localization/autoware_isaac_localization/*'
 
 Search the ROS package index.
 
+### `rosup ignore`
+
+Ignore an external dependency during resolution. Use this for deps that are
+erroneous in upstream `package.xml` files you cannot modify, or deps only
+available on other platforms.
+
+```
+rosup ignore [<dep>] [--list]
+```
+
+| Option   | Description                         |
+|----------|-------------------------------------|
+| `<dep>`  | Dependency name to ignore           |
+| `--list` | List currently ignored deps         |
+
+Without arguments or with `--list`, prints the current ignore list.
+
+**Examples:**
+
+```bash
+rosup ignore catkin              # ignore a ROS 1 dep
+rosup ignore blickfeld-scanner   # ignore a vendor-specific dep
+rosup ignore --list              # show ignored deps
+```
+
+---
+
+### `rosup unignore`
+
+Stop ignoring an external dependency.
+
+```
+rosup unignore <dep>
+```
+
+**Examples:**
+
+```bash
+rosup unignore catkin
+```
+
+---
+
+### `rosup search`
+
 ```
 rosup search <query> [options]
 ```

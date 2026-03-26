@@ -1280,6 +1280,7 @@ dependencies = [
  "eyre",
  "glob",
  "rosup-core",
+ "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
 ]
