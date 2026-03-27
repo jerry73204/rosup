@@ -1196,8 +1196,23 @@ fn cmd_build(
     }
 
     // Phase 2: build the dep layer from source-pulled worktrees.
-    builder::build_dep_layer(&project.root, &project_store, rebuild_deps, &overlay_env)
+    // Only build the packages we actually need — not everything in .rosup/src/.
+    // Filter to deps that have worktrees (source/repos deps), not ament/binary.
+    let (dep_names, _) = project
+        .external_deps()
         .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    let source_dep_names: Vec<String> = dep_names
+        .into_iter()
+        .filter(|name| project_store.src.join(name).exists())
+        .collect();
+    builder::build_dep_layer(
+        &project.root,
+        &project_store,
+        rebuild_deps,
+        &overlay_env,
+        &source_dep_names,
+    )
+    .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
 
     // Phase 2.5: remove stale deps from .rosup/install/ that are now workspace members.
     let member_names: Vec<String> = project
@@ -1468,6 +1483,13 @@ fn format_method(method: &rosup_core::resolver::ResolutionMethod) -> String {
         ResolutionMethod::Ament => "already installed".to_owned(),
         ResolutionMethod::Binary { packages, .. } => {
             format!("binary: {}", packages.join(", "))
+        }
+        ResolutionMethod::ReposSource {
+            source_name,
+            url,
+            version,
+        } => {
+            format!("repos ({source_name}): {url} @ {version}")
         }
         ResolutionMethod::Source { repo, url, branch } => {
             format!("source: {repo} ({url} @ {branch})")

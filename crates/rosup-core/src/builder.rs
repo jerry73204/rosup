@@ -71,8 +71,12 @@ pub fn ament_prefix_with_deps(project_store: &ProjectStore, base: &str) -> Strin
 
 // ── dep layer build ───────────────────────────────────────────────────────────
 
-/// Build all source-pulled worktrees in `<project>/.rosup/src/` into
+/// Build source-pulled worktrees in `<project>/.rosup/src/` into
 /// `<project>/.rosup/install/`.
+///
+/// Only builds `dep_packages` and their transitive deps (via
+/// `--packages-up-to`). This avoids building unneeded packages from
+/// multi-package repos.
 ///
 /// Skipped when `.rosup/src/` is empty or the install dir is already populated,
 /// unless `rebuild` is `true`.
@@ -81,6 +85,7 @@ pub fn build_dep_layer(
     project_store: &ProjectStore,
     rebuild: bool,
     overlay_env: &HashMap<String, String>,
+    dep_packages: &[String],
 ) -> Result<(), BuildError> {
     let src = &project_store.src;
 
@@ -119,6 +124,12 @@ pub fn build_dep_layer(
         .arg("--install-base")
         .arg(&project_store.install)
         .current_dir(project_root);
+    // Only build the packages we actually need + their transitive deps.
+    // Without this, colcon builds everything in .rosup/src/ — including
+    // packages with unresolved deps that our workspace doesn't need.
+    if !dep_packages.is_empty() {
+        cmd.arg("--packages-up-to").args(dep_packages);
+    }
     cmd.envs(overlay_env);
     cmd.env("AMENT_PREFIX_PATH", ament_prefix);
     run_colcon(&mut cmd)?;
