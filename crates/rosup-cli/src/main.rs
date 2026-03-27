@@ -187,6 +187,11 @@ enum Command {
         /// Dependency name to stop ignoring
         dep: String,
     },
+    /// Manage source registries (.repos files and git repos)
+    Source {
+        #[command(subcommand)]
+        action: SourceAction,
+    },
     /// Search the ROS package index
     Search {
         query: String,
@@ -258,6 +263,38 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum SourceAction {
+    /// Register a .repos file or git repo as a dependency source
+    Add {
+        /// Path to a .repos file (relative to workspace root)
+        #[arg(long, conflicts_with_all = ["git"])]
+        repos: Option<String>,
+        /// Git clone URL
+        #[arg(long, conflicts_with = "repos")]
+        git: Option<String>,
+        /// Branch (with --git)
+        #[arg(long, requires = "git")]
+        branch: Option<String>,
+        /// Tag (with --git)
+        #[arg(long, requires = "git")]
+        tag: Option<String>,
+        /// Commit SHA (with --git)
+        #[arg(long, requires = "git")]
+        rev: Option<String>,
+        /// Name for this source
+        #[arg(long)]
+        name: String,
+    },
+    /// List registered sources
+    List,
+    /// Remove a source by name
+    Remove {
+        /// Name of the source to remove
+        name: String,
+    },
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
 
@@ -317,6 +354,7 @@ fn main() -> Result<()> {
         Command::Include { pattern, pkg } => cmd_include(pattern, pkg),
         Command::Ignore { dep, list } => cmd_ignore(dep, list),
         Command::Unignore { dep } => cmd_unignore(dep),
+        Command::Source { action } => cmd_source(action),
         Command::Resolve {
             dry_run,
             source_only,
@@ -1037,6 +1075,165 @@ fn cmd_unignore(dep: String) -> Result<()> {
     let patched = patch_ignore_deps(&toml_text, &new_deps);
     std::fs::write(&toml_path, &patched).wrap_err("failed to write rosup.toml")?;
     println!("No longer ignoring: {dep}");
+    Ok(())
+}
+
+// ── source ────────────────────────────────────────────────────────────────────
+
+fn cmd_source(action: SourceAction) -> Result<()> {
+    let cwd = std::env::current_dir().wrap_err("failed to get current directory")?;
+    let project = Project::load_from(&cwd).map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+    let toml_path = project.root.join("rosup.toml");
+    let toml_text = std::fs::read_to_string(&toml_path).wrap_err("failed to read rosup.toml")?;
+
+    match action {
+        SourceAction::List => {
+            if project.config.resolve.sources.is_empty() {
+                println!("No sources registered.");
+            } else {
+                for src in &project.config.resolve.sources {
+                    if let Some(repos) = &src.repos {
+                        println!("{}: repos = {repos}", src.name);
+                    } else if let Some(git) = &src.git {
+                        let ver = src
+                            .rev
+                            .as_deref()
+                            .or(src.tag.as_deref())
+                            .or(src.branch.as_deref())
+                            .unwrap_or("HEAD");
+                        println!("{}: git = {git} @ {ver}", src.name);
+                    }
+                }
+            }
+        }
+        SourceAction::Add {
+            repos,
+            git,
+            branch,
+            tag,
+            rev,
+            name,
+        } => {
+            // Check for duplicate name.
+            if project
+                .config
+                .resolve
+                .sources
+                .iter()
+                .any(|s| s.name == name)
+            {
+                color_eyre::eyre::bail!("source `{name}` already registered");
+            }
+
+            let mut doc = toml_text
+                .parse::<toml_edit::DocumentMut>()
+                .expect("rosup.toml should be valid TOML");
+
+            // Ensure [resolve] table exists.
+            let resolve = doc
+                .entry("resolve")
+                .or_insert(toml_edit::Item::Table(toml_edit::Table::new()))
+                .as_table_like_mut()
+                .expect("[resolve] must be a table");
+
+            // Build the source entry as an inline table.
+            let mut entry = toml_edit::InlineTable::new();
+            entry.insert("name", name.clone().into());
+            if let Some(repos_path) = &repos {
+                entry.insert("repos", repos_path.clone().into());
+            }
+            if let Some(git_url) = &git {
+                entry.insert("git", git_url.clone().into());
+            }
+            if let Some(b) = &branch {
+                entry.insert("branch", b.clone().into());
+            }
+            if let Some(t) = &tag {
+                entry.insert("tag", t.clone().into());
+            }
+            if let Some(r) = &rev {
+                entry.insert("rev", r.clone().into());
+            }
+
+            // Append to [[resolve.sources]] array.
+            let sources = resolve
+                .entry("sources")
+                .or_insert(toml_edit::Item::ArrayOfTables(
+                    toml_edit::ArrayOfTables::new(),
+                ));
+            if let Some(arr) = sources.as_array_of_tables_mut() {
+                let mut table = toml_edit::Table::new();
+                table.insert("name", toml_edit::value(name.clone()));
+                if let Some(repos_path) = &repos {
+                    table.insert("repos", toml_edit::value(repos_path.clone()));
+                }
+                if let Some(git_url) = &git {
+                    table.insert("git", toml_edit::value(git_url.clone()));
+                }
+                if let Some(b) = &branch {
+                    table.insert("branch", toml_edit::value(b.clone()));
+                }
+                if let Some(t) = &tag {
+                    table.insert("tag", toml_edit::value(t.clone()));
+                }
+                if let Some(r) = &rev {
+                    table.insert("rev", toml_edit::value(r.clone()));
+                }
+                arr.push(table);
+            }
+
+            std::fs::write(&toml_path, doc.to_string()).wrap_err("failed to write rosup.toml")?;
+
+            if repos.is_some() {
+                println!("Added source: {name} (repos)");
+            } else {
+                println!("Added source: {name} (git)");
+            }
+        }
+        SourceAction::Remove { name } => {
+            if !project
+                .config
+                .resolve
+                .sources
+                .iter()
+                .any(|s| s.name == name)
+            {
+                color_eyre::eyre::bail!("source `{name}` not found");
+            }
+
+            let mut doc = toml_text
+                .parse::<toml_edit::DocumentMut>()
+                .expect("rosup.toml should be valid TOML");
+
+            if let Some(resolve) = doc.get_mut("resolve")
+                && let Some(resolve_table) = resolve.as_table_like_mut()
+                && let Some(sources) = resolve_table.get_mut("sources")
+                && let Some(arr) = sources.as_array_of_tables_mut()
+            {
+                // Find and remove the entry by name.
+                let mut idx = None;
+                for (i, table) in arr.iter().enumerate() {
+                    if let Some(n) = table.get("name")
+                        && n.as_str() == Some(&name)
+                    {
+                        idx = Some(i);
+                        break;
+                    }
+                }
+                if let Some(i) = idx {
+                    arr.remove(i);
+                }
+                // If empty, remove the key entirely.
+                if arr.is_empty() {
+                    resolve_table.remove("sources");
+                }
+            }
+
+            std::fs::write(&toml_path, doc.to_string()).wrap_err("failed to write rosup.toml")?;
+            println!("Removed source: {name}");
+        }
+    }
+
     Ok(())
 }
 

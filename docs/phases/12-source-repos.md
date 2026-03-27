@@ -105,22 +105,19 @@ Three strategies for mapping package names to repo entries:
 
 ---
 
-## 12.7 CLI commands (TODO)
+## 12.7 CLI commands — DONE
 
 **File:** `crates/rosup-cli/src/main.rs`
 
-- [ ] `rosup source add <file_or_url> --name <name>` — register a
-  `.repos` file or git URL as a source in `rosup.toml`.
-- [ ] `rosup source add --git <url> --branch <b> --name <name>` —
-  register a direct git repo source.
-- [ ] `rosup source list` — list registered sources.
-- [ ] `rosup source remove <name>` — remove a source by name.
-
-### Acceptance criteria
-
-- [ ] `rosup source add autoware.repos --name autoware` adds the entry
-  to `rosup.toml`.
-- [ ] `rosup source list` shows registered sources.
+- [x] `rosup source add --repos <file> --name <name>` — register a
+  `.repos` file as a source.
+- [x] `rosup source add --git <url> --branch <b> --name <name>` —
+  register a direct git repo source. Also supports `--tag` and `--rev`.
+- [x] `rosup source list` — list registered sources with type and URL.
+- [x] `rosup source remove <name>` — remove a source by name.
+  Removes `[[resolve.sources]]` entry. Cleans up empty `sources` key.
+- [x] Duplicate name detection on add.
+- [x] `toml_edit` for format-preserving edits (comments preserved).
 
 ---
 
@@ -143,5 +140,5 @@ Three strategies for mapping package names to repo entries:
 | 12.4 Resolution integration | DONE | — |
 | 12.5 Direct git sources | DONE | — |
 | 12.6 Integration tests | DONE | 4 integration |
-| 12.7 CLI commands | TODO | — |
+| 12.7 CLI commands | DONE | — |
 | 12.8 Documentation | TODO | — |
