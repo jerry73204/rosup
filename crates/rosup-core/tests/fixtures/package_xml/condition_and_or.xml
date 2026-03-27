@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>compound_conditions</name>
+  <version>1.0.0</version>
+  <description>Package with compound and/or conditions</description>
+  <maintainer email="x@x.com">X</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- ROS 2 only: both conditions true -->
+  <depend condition="$ROS_VERSION == 2 and $ROS_VERSION != 1">rclcpp</depend>
+
+  <!-- ROS 1 only: first condition false, AND makes it false -->
+  <depend condition="$ROS_VERSION == 1 and $ROS_VERSION != 2">roscpp</depend>
+
+  <!-- Either ROS version: OR makes it true -->
+  <depend condition="$ROS_VERSION == 1 or $ROS_VERSION == 2">sensor_msgs</depend>
+
+  <!-- Neither version matches: both false, OR stays false -->
+  <depend condition="$ROS_VERSION == 3 or $ROS_VERSION == 4">nonexistent_pkg</depend>
+
+  <!-- Unconditional -->
+  <depend>std_msgs</depend>
+</package>

@@ -144,35 +144,10 @@ impl Dependencies {
 /// and `$ROS_VERSION == 2`. For conditions we can't evaluate (complex
 /// expressions with `and`/`or`/parentheses), returns `true` (conservative:
 /// include the dep rather than silently dropping it).
+/// Evaluate a REP-149 condition attribute. Delegates to the full
+/// expression parser in `condition.rs`.
 fn eval_condition(condition: &str) -> bool {
-    // Substitute known variables.
-    let expr = condition.replace("$ROS_VERSION", "2");
-
-    // If unresolved variables remain, we can't evaluate — include the dep.
-    if expr.contains('$') {
-        return true;
-    }
-
-    // Try to match simple: `<lhs> <op> <rhs>` patterns.
-    let expr = expr.trim();
-    for op in &["==", "!=", ">=", "<=", ">", "<"] {
-        if let Some((lhs, rhs)) = expr.split_once(op) {
-            let lhs = lhs.trim().trim_matches(|c| c == '"' || c == '\'');
-            let rhs = rhs.trim().trim_matches(|c| c == '"' || c == '\'');
-            return match *op {
-                "==" => lhs == rhs,
-                "!=" => lhs != rhs,
-                ">=" => lhs >= rhs,
-                "<=" => lhs <= rhs,
-                ">" => lhs > rhs,
-                "<" => lhs < rhs,
-                _ => true,
-            };
-        }
-    }
-
-    // Can't parse — include the dep (conservative).
-    true
+    crate::condition::eval_condition(condition)
 }
 
 pub fn parse_file(path: &Path) -> Result<PackageManifest, PackageXmlError> {
@@ -443,5 +418,30 @@ mod tests {
 
         // Complex expressions we can't parse — conservative, return true.
         assert!(eval_condition("$ROS_VERSION == 2 and $ARCH == arm64"));
+    }
+
+    #[test]
+    fn compound_and_or_conditions() {
+        let manifest =
+            parse_str(&fixture("package_xml/condition_and_or.xml"), &dummy_path()).unwrap();
+        let dep_names = Dependencies::names(&manifest.deps.depend);
+        assert!(dep_names.contains(&"rclcpp"), "ROS 2 AND condition true");
+        assert!(!dep_names.contains(&"roscpp"), "ROS 1 AND condition false");
+        assert!(dep_names.contains(&"sensor_msgs"), "OR with one true");
+        assert!(
+            !dep_names.contains(&"nonexistent_pkg"),
+            "OR with both false"
+        );
+        assert!(dep_names.contains(&"std_msgs"), "unconditional");
+    }
+
+    #[test]
+    fn parenthesised_conditions() {
+        let manifest =
+            parse_str(&fixture("package_xml/condition_parens.xml"), &dummy_path()).unwrap();
+        let dep_names = Dependencies::names(&manifest.deps.depend);
+        assert!(dep_names.contains(&"rclcpp"), "(F or T) and T = T");
+        assert!(!dep_names.contains(&"roscpp"), "(F or T) and F = F");
+        assert!(dep_names.contains(&"std_msgs"), "unconditional");
     }
 }

@@ -1,5 +1,6 @@
 pub mod build;
 pub mod builder;
+pub mod condition;
 pub mod config;
 pub mod git;
 pub mod init;

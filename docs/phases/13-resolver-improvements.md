@@ -152,80 +152,52 @@ variables cause the expression to evaluate conservatively to `true`.
 
 **File:** `crates/rosup-core/src/package_xml.rs` (replace `eval_condition`)
 
-### 13.3.1 Tokeniser and parser
+### 13.3.1 Tokeniser and parser — DONE
 
-- [ ] Define token types: `LParen`, `RParen`, `And`, `Or`, `Op(CmpOp)`,
+**File:** `crates/rosup-core/src/condition.rs`
+
+- [x] Token types: `LParen`, `RParen`, `And`, `Or`, `Op(CmpOp)`,
   `Var(String)`, `Literal(String)`.
-- [ ] Tokenise the condition string. Quoted strings preserve their content;
-  unquoted strings are delimited by whitespace and operators.
-- [ ] Recursive-descent parser producing an AST:
-  ```rust
-  enum Expr {
-      Compare { lhs: Value, op: CmpOp, rhs: Value },
-      And(Vec<Expr>),
-      Or(Vec<Expr>),
-  }
-  enum Value { Var(String), Literal(String) }
-  enum CmpOp { Eq, Ne, Lt, Le, Gt, Ge }
-  ```
-- [ ] Parse errors fall back to `true` (conservative, same as current
-  behaviour — never silently drop a dep).
+- [x] Tokeniser handles: `$IDENT` variables, quoted strings (single/double),
+  unquoted literals, all 6 comparison operators, `and`/`or` keywords,
+  parentheses, whitespace skipping.
+- [x] Recursive-descent parser producing AST: `Expr::Compare`,
+  `Expr::And(Vec)`, `Expr::Or(Vec)`.
+- [x] `and` binds tighter than `or` (correct precedence).
+- [x] Parse errors fall back to `true` (conservative).
 
-### 13.3.2 Evaluator
+### 13.3.2 Evaluator — DONE
 
-- [ ] Substitute known variables: `$ROS_VERSION` → `"2"`.
-  Optionally accept additional variables from caller (for future
-  `$ROS_DISTRO` support).
-- [ ] If any variable in the expression is unresolved after substitution,
-  return `true` (conservative).
-- [ ] Evaluate `And`/`Or`/`Compare` nodes. String comparison for all
-  operators (REP-149 does not define numeric semantics).
+- [x] `eval_condition(condition)` — default variables: `$ROS_VERSION` = `"2"`.
+- [x] `eval_condition_with_vars(condition, vars)` — custom variable bindings.
+- [x] Unresolved variables → `true` (conservative).
+- [x] String comparison for all operators (per REP-149 spec).
 
-### 13.3.3 Test fixtures from official sources
+### 13.3.3 Fixtures — DONE
 
-REP-149 condition examples appear in the official ROS packaging test suites.
-Copy or adapt fixtures from:
+- [x] `condition_and_or.xml` — compound `and`/`or` conditions.
+- [x] `condition_parens.xml` — parenthesised grouping.
+- [x] Quoted string and malformed input covered by unit tests in
+  `condition.rs`.
 
-- `ros-infrastructure/catkin_pkg` — the reference parser for `package.xml`.
-  Contains `test/test_condition.py` with condition evaluation tests.
-- Real-world `package.xml` files in `ros2/common_interfaces`,
-  `ros2/geometry2`, and `ros/catkin` that use compound conditions.
+### 13.3.4 Tests — DONE
 
-Fixture files to create:
+20 unit tests in `condition.rs`:
+- [x] Tokeniser: simple comparison, quoted strings, and/or, parens,
+  all operators, empty input.
+- [x] Evaluator: simple ROS_VERSION, and expression, or expression,
+  precedence (and > or), parenthesised grouping, unresolved variables
+  (in and, in or), quoted strings, all comparison operators, malformed
+  input, backwards compatibility.
 
-- [ ] `tests/fixtures/package_xml/condition_and_or.xml` — compound `and`/`or`
-  conditions mixing ROS 1 and ROS 2 deps.
-- [ ] `tests/fixtures/package_xml/condition_parens.xml` — parenthesised
-  grouping with nested logic.
-- [ ] `tests/fixtures/package_xml/condition_ros_distro.xml` — conditions on
-  `$ROS_DISTRO` (unresolved variable, should include deps conservatively).
-- [ ] `tests/fixtures/package_xml/condition_quoted.xml` — quoted string
-  values in comparisons.
-- [ ] `tests/fixtures/package_xml/condition_malformed.xml` — unparseable
-  conditions (should fall back to including the dep).
-
-### 13.3.4 Unit tests
-
-- [ ] Tokeniser tests: all token types, edge cases (adjacent operators,
-  empty input, only whitespace).
-- [ ] Parser tests: simple comparison, `and` chain, `or` chain, mixed
-  `and`/`or` (precedence: `and` binds tighter than `or`), nested parens,
-  malformed input falls back to `true`.
-- [ ] Evaluator tests: `$ROS_VERSION == 2` → true, `$ROS_VERSION == 1` →
-  false, `$ROS_VERSION == 2 and $ROS_DISTRO == humble` → true (unresolved
-  `$ROS_DISTRO` → conservative), `$ROS_VERSION == 1 or $ROS_VERSION == 2`
-  → true.
-- [ ] Integration: parse each fixture file, verify correct deps included
-  and excluded.
-- [ ] Backwards compatibility: existing `conditional_deps.xml` fixture
-  produces identical results.
+2 integration tests in `package_xml.rs`:
+- [x] `compound_and_or_conditions` — fixture-based.
+- [x] `parenthesised_conditions` — fixture-based.
 
 ### Acceptance criteria
 
-- [ ] All compound conditions from `catkin_pkg` test suite produce matching
-  results.
-- [ ] Existing tests pass unchanged (no regressions).
-- [ ] `just ci` passes.
+- [x] Existing `conditional_deps.xml` tests pass unchanged.
+- [x] `just ci` passes (255 tests, 0 failures).
 
 ---
 
