@@ -79,6 +79,43 @@ pub struct ResolveConfig {
     /// deps only available on other platforms.
     #[serde(default)]
     pub ignore_deps: Vec<String>,
+    /// Additional source registries (.repos files) to check during resolution.
+    /// Checked after rosdep, before rosdistro.
+    #[serde(default)]
+    pub sources: Vec<SourceRepo>,
+}
+
+/// A named source registry — either a `.repos` file or a direct git repo.
+///
+/// Exactly one of `repos` or `git` must be set.
+///
+/// ```toml
+/// # .repos file (multiple repos)
+/// [[resolve.sources]]
+/// name = "autoware"
+/// repos = "autoware.repos"
+///
+/// # Direct git repo (Cargo-style)
+/// [[resolve.sources]]
+/// name = "my-fork"
+/// git = "https://github.com/myfork/navigation2.git"
+/// branch = "humble"       # or tag = "1.5.0" or rev = "abc123"
+/// ```
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct SourceRepo {
+    /// Human-readable name for this source.
+    pub name: String,
+    /// Path to a .repos file (relative to workspace root).
+    pub repos: Option<String>,
+    /// Git clone URL (direct repo source).
+    pub git: Option<String>,
+    /// Branch to checkout (only with `git`).
+    pub branch: Option<String>,
+    /// Tag to checkout (only with `git`).
+    pub tag: Option<String>,
+    /// Exact commit to checkout (only with `git`).
+    pub rev: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]

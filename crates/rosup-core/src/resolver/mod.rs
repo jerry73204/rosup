@@ -1,4 +1,5 @@
 pub mod ament;
+pub mod repos_file;
 pub mod rosdep;
 pub mod rosdistro;
 pub mod store;
@@ -29,6 +30,13 @@ pub enum ResolutionMethod {
         installer: String,
         packages: Vec<String>,
     },
+    /// Cloned from a .repos source file registered in `[[resolve.sources]]`.
+    ReposSource {
+        /// Name of the source (from rosup.toml).
+        source_name: String,
+        url: String,
+        version: String,
+    },
     /// Cloned from a source repository found in rosdistro.
     ///
     /// `repo` is the rosdistro repository name, which may differ from the
@@ -54,6 +62,13 @@ impl std::fmt::Display for ResolutionMethod {
             ResolutionMethod::Ament => write!(f, "ament (already installed)"),
             ResolutionMethod::Binary { packages, .. } => {
                 write!(f, "binary ({})", packages.join(", "))
+            }
+            ResolutionMethod::ReposSource {
+                source_name,
+                url,
+                version,
+            } => {
+                write!(f, "repos ({source_name}: {url} @ {version})")
             }
             ResolutionMethod::Source { repo, url, branch } => {
                 write!(f, "source ({repo}: {url} @ {branch})")
@@ -96,6 +111,8 @@ pub enum ResolverError {
     Rosdep(#[from] rosdep::RosdepError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("repos file error: {0}")]
+    ReposFile(#[from] repos_file::ReposFileError),
     #[error("git error running `{cmd}`: {detail}")]
     Git { cmd: String, detail: String },
     #[error("sparse checkout error: {0}")]
@@ -113,6 +130,7 @@ pub struct Resolver {
     config: ResolveConfig,
     global: GlobalStore,
     project: ProjectStore,
+    project_root: std::path::PathBuf,
 }
 
 impl Resolver {
@@ -135,7 +153,91 @@ impl Resolver {
             config,
             global,
             project,
+            project_root: project_root.to_owned(),
         })
+    }
+
+    /// Load sources from [[resolve.sources]] and build a package → entry index.
+    ///
+    /// Handles both `.repos` files and direct `git` repo sources.
+    /// Returns a map of package_name → (source_name, RepoEntry).
+    fn load_repos_index(
+        &self,
+        cache: &DistroCache,
+    ) -> Result<HashMap<String, (String, repos_file::RepoEntry)>, ResolverError> {
+        let mut combined_index = HashMap::new();
+
+        // Build rosdistro URL index once (shared across all sources).
+        let rosdistro_urls: HashMap<String, String> = cache
+            .all_packages()
+            .into_iter()
+            .filter_map(|pkg| cache.lookup(&pkg).map(|src| (pkg, src.url.clone())))
+            .collect();
+
+        for source in &self.config.sources {
+            if let Some(repos_path_str) = &source.repos {
+                // .repos file source
+                let repos_path = self.project_root.join(repos_path_str);
+                if !repos_path.exists() {
+                    warn!(
+                        "repos file not found: {} (source: {})",
+                        repos_path.display(),
+                        source.name
+                    );
+                    continue;
+                }
+
+                let repos = repos_file::ReposFile::parse(&repos_path, &source.name)?;
+                let file_index = repos_file::build_package_index(
+                    &repos,
+                    &rosdistro_urls,
+                    Some(&self.global.src),
+                );
+                for (pkg_name, entry) in file_index {
+                    combined_index
+                        .entry(pkg_name)
+                        .or_insert_with(|| (source.name.clone(), entry.clone()));
+                }
+            } else if let Some(git_url) = &source.git {
+                // Direct git repo source — resolve version from branch/tag/rev.
+                let version = source
+                    .rev
+                    .as_deref()
+                    .or(source.tag.as_deref())
+                    .or(source.branch.as_deref())
+                    .unwrap_or("HEAD")
+                    .to_owned();
+
+                let entry = repos_file::RepoEntry {
+                    path: source.name.clone(),
+                    url: git_url.clone(),
+                    version,
+                };
+
+                // For a direct git repo, use the source name as the package
+                // name (single-package repo heuristic). Also check rosdistro
+                // for multi-package repos with matching URL.
+                let mut matched = false;
+                let normalized = git_url.trim_end_matches(".git");
+                for (pkg_name, src_url) in &rosdistro_urls {
+                    if src_url.trim_end_matches(".git") == normalized {
+                        combined_index
+                            .entry(pkg_name.clone())
+                            .or_insert_with(|| (source.name.clone(), entry.clone()));
+                        matched = true;
+                    }
+                }
+                if !matched {
+                    // Fallback: use source name as package name
+                    combined_index
+                        .entry(source.name.clone())
+                        .or_insert_with(|| (source.name.clone(), entry));
+                }
+            }
+            // else: neither repos nor git — skip (config validation should catch this)
+        }
+
+        Ok(combined_index)
     }
 
     /// Classify all dependencies into the full 6-category model.
@@ -151,6 +253,7 @@ impl Resolver {
         force_refresh: bool,
     ) -> Result<ResolutionPlan, ResolverError> {
         let cache = DistroCache::load(&self.global.cache, &self.distro, force_refresh)?;
+        let repos_index = self.load_repos_index(&cache)?;
         let mut plan = ResolutionPlan::default();
 
         for dep in deps {
@@ -160,7 +263,7 @@ impl Resolver {
                     method: ResolutionMethod::WorkspaceMember,
                 });
             } else {
-                match self.resolve_one(dep, &cache, source_only) {
+                match self.resolve_one(dep, &cache, &repos_index, source_only) {
                     Some(method) => plan.resolved.push(ResolvedDep {
                         name: dep.clone(),
                         method,
@@ -181,10 +284,11 @@ impl Resolver {
         force_refresh: bool,
     ) -> Result<ResolutionPlan, ResolverError> {
         let cache = DistroCache::load(&self.global.cache, &self.distro, force_refresh)?;
+        let repos_index = self.load_repos_index(&cache)?;
         let mut plan = ResolutionPlan::default();
 
         for dep in deps {
-            match self.resolve_one(dep, &cache, source_only) {
+            match self.resolve_one(dep, &cache, &repos_index, source_only) {
                 Some(method) => plan.resolved.push(ResolvedDep {
                     name: dep.clone(),
                     method,
@@ -229,6 +333,7 @@ impl Resolver {
         &self,
         dep: &str,
         cache: &DistroCache,
+        repos_index: &HashMap<String, (String, repos_file::RepoEntry)>,
         source_only: bool,
     ) -> Option<ResolutionMethod> {
         // 1. User override from rosup.toml — explicit user intent wins over
@@ -239,7 +344,23 @@ impl Resolver {
             return Some(override_method(ov));
         }
 
-        // 2. Ament environment (already installed in a sourced overlay).
+        // 2. .repos / git sources (from [[resolve.sources]]).
+        // Higher priority than ament — like Cargo's [patch], the user
+        // explicitly registered these sources to use specific versions,
+        // even if the package is already installed in an overlay.
+        if let Some((source_name, entry)) = repos_index.get(dep) {
+            debug!(
+                "{dep}: found in .repos source '{source_name}' ({} @ {})",
+                entry.url, entry.version
+            );
+            return Some(ResolutionMethod::ReposSource {
+                source_name: source_name.to_string(),
+                url: entry.url.clone(),
+                version: entry.version.clone(),
+            });
+        }
+
+        // 3. Ament environment (already installed in a sourced overlay).
         if ament::is_installed(dep) {
             debug!("{dep}: found in ament environment");
             return Some(ResolutionMethod::Ament);
@@ -251,7 +372,7 @@ impl Resolver {
             !source_only && self.config.source_preference != SourcePreference::Source;
         let allow_source = self.config.source_preference != SourcePreference::Binary;
 
-        // 3. rosdep binary (unless source-only).
+        // 4. rosdep binary (unless source-only).
         if allow_binary {
             match rosdep::resolve(dep, &self.distro) {
                 Ok(r) => {
@@ -270,7 +391,7 @@ impl Resolver {
             }
         }
 
-        // 4. rosdistro source pull.
+        // 5. rosdistro source pull.
         if (allow_source || prefer_source)
             && let Some(src) = cache.lookup(dep)
         {
@@ -308,6 +429,22 @@ impl Resolver {
                 }
                 ResolutionMethod::Binary { .. } => {
                     binary_keys.push(&dep.name);
+                }
+                ResolutionMethod::ReposSource {
+                    source_name: _,
+                    url,
+                    version,
+                } => {
+                    // .repos source deps are cloned like rosdistro source deps.
+                    // Use the dep name as the repo key.
+                    source_repos
+                        .entry(dep.name.clone())
+                        .or_insert_with(|| SourceRepo {
+                            url: url.clone(),
+                            branch: version.clone(),
+                            rev: None,
+                            sparse_paths: Vec::new(),
+                        });
                 }
                 ResolutionMethod::Source { repo, url, branch } => {
                     let entry = source_repos

@@ -86,6 +86,11 @@ impl DistroCache {
         self.index.len()
     }
 
+    /// All package names in the cache.
+    pub fn all_packages(&self) -> Vec<String> {
+        self.index.keys().cloned().collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.index.is_empty()
     }
