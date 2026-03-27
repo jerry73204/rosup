@@ -375,6 +375,46 @@ rosup search "costmap" --distro jazzy
 
 ---
 
+### `rosup source`
+
+Manage source registries — `.repos` files and git repos used as dependency
+sources. Packages from registered sources are resolved before rosdep and
+rosdistro.
+
+```
+rosup source add --repos <file> --name <name>
+rosup source add --git <url> [--branch|--tag|--rev <ver>] --name <name>
+rosup source list
+rosup source remove <name>
+```
+
+| Subcommand | Description                                           |
+|------------|-------------------------------------------------------|
+| `add`      | Register a `.repos` file or git repo as a dep source  |
+| `list`     | List registered sources                               |
+| `remove`   | Remove a source by name                               |
+
+**Examples:**
+
+```bash
+# Add Autoware as a dependency source
+rosup source add --repos autoware.repos --name autoware
+
+# Add a fork of a specific repo
+rosup source add --git https://github.com/myfork/nav2.git --branch humble --name my-nav2
+
+# Pin to an exact version
+rosup source add --git https://github.com/org/repo.git --tag 1.5.0 --name pinned
+
+# List all sources
+rosup source list
+
+# Remove a source
+rosup source remove my-nav2
+```
+
+---
+
 ### `rosup run`
 
 Run a ROS node. Sources the workspace and dep layer, then delegates to

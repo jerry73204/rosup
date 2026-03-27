@@ -146,6 +146,23 @@ rosup ignore --list            # show ignored deps
 rosup unignore catkin          # stop ignoring
 ```
 
+### Register dependency sources
+
+```sh
+# Use Autoware's .repos file as a dependency source
+rosup source add --repos autoware.repos --name autoware
+
+# Use a git repo fork
+rosup source add --git https://github.com/myfork/nav2.git --branch humble --name my-nav2
+
+# List and remove
+rosup source list
+rosup source remove my-nav2
+```
+
+Packages from registered sources are resolved before rosdep and rosdistro.
+Only repos that provide packages needed by the workspace are cloned.
+
 ### Search the ROS package index
 
 ```sh
@@ -213,6 +230,17 @@ source-preference = "auto"
 
 # Ignore deps that are erroneous or platform-specific.
 ignore-deps = ["catkin", "roscpp", "blickfeld-scanner"]
+
+# Additional source registries (checked before rosdep/rosdistro).
+[[resolve.sources]]
+name = "autoware"
+repos = "autoware.repos"
+
+# Direct git repo as a source.
+# [[resolve.sources]]
+# name = "my-nav2-fork"
+# git = "https://github.com/myfork/navigation2.git"
+# branch = "humble"
 
 # Override resolution for a specific dep.
 [resolve.overrides.nav2_core]
@@ -302,6 +330,7 @@ Global cache shared across all projects:
 | `rosup sync`           | Sync workspace member list in `rosup.toml`               |
 | `rosup exclude`        | Exclude workspace packages from discovery                |
 | `rosup include`        | Re-include excluded packages                             |
+| `rosup source`         | Manage dependency source registries (.repos / git)       |
 | `rosup ignore <dep>`   | Ignore an external dependency during resolution          |
 | `rosup unignore <dep>` | Stop ignoring a dependency                               |
 | `rosup clean`          | Remove build artifacts                                   |

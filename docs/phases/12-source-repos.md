@@ -121,12 +121,13 @@ Three strategies for mapping package names to repo entries:
 
 ---
 
-## 12.8 Documentation (TODO)
+## 12.8 Documentation — DONE
 
-- [ ] Update `docs/reference/rosup-toml.md` with `[[resolve.sources]]`
-  section.
-- [ ] Update `docs/reference/cli.md` with `rosup source` commands.
-- [ ] Update `README.md` with source repos example.
+- [x] `docs/reference/rosup-toml.md`: `[[resolve.sources]]` section with
+  field table, `.repos` and `git` examples.
+- [x] `docs/reference/cli.md`: `rosup source` add/list/remove docs.
+- [x] `README.md`: source repos section in quick start, `[[resolve.sources]]`
+  in rosup.toml reference, `rosup source` in command table.
 
 ---
 
@@ -141,4 +142,4 @@ Three strategies for mapping package names to repo entries:
 | 12.5 Direct git sources | DONE | — |
 | 12.6 Integration tests | DONE | 4 integration |
 | 12.7 CLI commands | DONE | — |
-| 12.8 Documentation | TODO | — |
+| 12.8 Documentation | DONE | — |

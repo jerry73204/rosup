@@ -127,6 +127,47 @@ cannot be ignored this way (use `[workspace] exclude` instead).
 ignore-deps = ["roscpp", "catkin", "blickfeld-scanner"]
 ```
 
+### `[[resolve.sources]]`
+
+Register additional source registries — `.repos` files or direct git repos —
+as dependency sources. Packages from these sources are resolved before rosdep
+and rosdistro, acting like Cargo's `[patch]`.
+
+Only repos that provide packages needed by the workspace are cloned.
+
+```toml
+# .repos file source (multiple repos)
+[[resolve.sources]]
+name = "autoware"
+repos = "autoware.repos"     # path relative to workspace root
+
+# Direct git repo source (Cargo-style)
+[[resolve.sources]]
+name = "my-nav2-fork"
+git = "https://github.com/myfork/navigation2.git"
+branch = "humble"            # or tag = "1.5.0" or rev = "abc123"
+```
+
+| Field    | Type   | Required | Description                                          |
+|----------|--------|----------|------------------------------------------------------|
+| `name`   | string | yes      | Human-readable name for this source                  |
+| `repos`  | string | no*      | Path to a `.repos` file (relative to workspace root) |
+| `git`    | string | no*      | Git clone URL                                        |
+| `branch` | string | no       | Branch to checkout (with `git`)                      |
+| `tag`    | string | no       | Tag to checkout (with `git`)                         |
+| `rev`    | string | no       | Exact commit SHA (with `git`)                        |
+
+\* Exactly one of `repos` or `git` must be set.
+
+Manage sources via the CLI:
+
+```bash
+rosup source add --repos autoware.repos --name autoware
+rosup source add --git https://github.com/myfork/nav2.git --branch humble --name my-nav2
+rosup source list
+rosup source remove my-nav2
+```
+
 ### `[resolve.overrides.<dep_name>]`
 
 Override resolution for a specific dependency. Forces source pull from the
