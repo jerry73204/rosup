@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mock_pkg</name>
+  <version>0.0.1</version>
+  <description>Mock package that depends on Autoware packages</description>
+  <maintainer email="test@example.com">Test</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Deps from autoware_core repo (multi-package) -->
+  <depend>autoware_utils</depend>
+
+  <!-- Deps from autoware_universe repo (multi-package, 100+ packages) -->
+  <depend>autoware_pointcloud_preprocessor</depend>
+
+  <!-- Deps from tier4_autoware_msgs repo -->
+  <depend>tier4_localization_msgs</depend>
+
+  <!-- Standard ROS deps (from ament/rosdep) -->
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

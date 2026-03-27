@@ -1,0 +1,12 @@
+# Test workspace: mock packages that depend on Autoware packages.
+# No Autoware binary overlay — deps resolved from autoware.repos only.
+
+[workspace]
+
+[resolve]
+ros-distro = "humble"
+overlays = ["/opt/ros/humble"]
+
+[[resolve.sources]]
+name = "autoware"
+repos = "autoware.repos"
