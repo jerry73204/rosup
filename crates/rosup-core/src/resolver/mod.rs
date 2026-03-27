@@ -494,9 +494,25 @@ impl Resolver {
             }
         }
 
-        // Install all binary deps in one rosdep call.
+        // Install all binary deps: resolve each key to system packages,
+        // then call the installer directly for better control and error messages.
         if !binary_keys.is_empty() {
-            rosdep::install(&binary_keys, &self.distro, false, yes)?;
+            let resolved = rosdep::resolve_all(&binary_keys, &self.distro)?;
+
+            for (key, msg) in &resolved.failures {
+                warn!("rosdep resolve failed for {key}: {msg}");
+            }
+
+            for (installer, packages) in &resolved.by_installer {
+                for pkg in packages {
+                    info!(
+                        "{} → {} ({})",
+                        pkg.rosdep_key, pkg.system_package, installer
+                    );
+                }
+            }
+
+            rosdep::install_direct(&resolved, false, yes)?;
         }
 
         Ok(())

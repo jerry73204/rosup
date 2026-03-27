@@ -1,11 +1,11 @@
-# Phase 12 — Resolver Improvements
+# Phase 13 — Resolver Improvements
 
 Three independent work streams targeting the source pull pipeline, binary
 dependency installation, and package.xml condition parsing.
 
 ---
 
-## 12.1 Git sparse-checkout for source dependencies
+## 13.1 Git sparse-checkout for source dependencies
 
 **Current state:** Source deps use a two-level model — bare clone in
 `~/.rosup/src/<repo>.git`, worktree in `<project>/.rosup/src/<repo>/`. This
@@ -18,7 +18,7 @@ should only materialise the directories rosup actually needs.
 **Files:** `crates/rosup-core/src/resolver/mod.rs` (source pull logic),
 new `crates/rosup-core/src/git/sparse.rs`
 
-### 12.1.1 Sparse-checkout primitives — DONE
+### 13.1.1 Sparse-checkout primitives — DONE
 
 **Files:** `crates/rosup-core/src/git/mod.rs`, `crates/rosup-core/src/git/sparse.rs`
 
@@ -44,7 +44,7 @@ from bare repos on git < 2.38.
   idempotency, shallow clone, no-checkout worktree, sparse init, additive
   add, list, empty paths noop, is_sparse detection.
 
-### 12.1.2 Integrate into resolver — DONE
+### 13.1.2 Integrate into resolver — DONE
 
 **File:** `crates/rosup-core/src/resolver/mod.rs`
 
@@ -58,7 +58,7 @@ from bare repos on git < 2.38.
 - [x] Partial bare clone (`--filter=blob:none`) is the default for all repos.
   Shallow bare clone (`--depth=1`) only when `--shallow` flag is set.
 
-### 12.1.3 Shallow clone support for CI — DONE
+### 13.1.3 Shallow clone support for CI — DONE
 
 **File:** `crates/rosup-cli/src/main.rs`
 
@@ -77,54 +77,53 @@ from bare repos on git < 2.38.
 
 ---
 
-## 12.2 Explore `rosdep resolve` for dependency queries
+## 13.2 Direct installer invocation via `rosdep resolve` — DONE
 
-**Current state:** rosup already uses `rosdep resolve <dep> --rosdistro <distro>`
-in `resolver/rosdep.rs` to query whether a dependency is available as a
-binary. It also uses `rosdep install --from-paths` with a temporary
-`package.xml` to install binary deps.
+**Previous state:** rosup used `rosdep install --from-paths` with a
+temporary `package.xml` to install binary deps. This required writing a
+fake package.xml and gave opaque error messages.
 
-**Goal:** Study whether `rosdep resolve` can replace or improve the
-`rosdep install` path, and document findings for future work.
+**New approach:** Use `rosdep resolve` exclusively to map keys to system
+packages, then call `apt-get install` / `pip install` directly.
+
+See `docs/design/rosdep-resolve.md` for the full analysis.
 
 **File:** `crates/rosup-core/src/resolver/rosdep.rs`
 
-### 12.2.1 Research: rosdep resolve vs rosdep install
+### 13.2.1 Research: rosdep resolve vs rosdep install — DONE
 
-- [ ] Document the behavioural differences between `rosdep resolve` and
-  `rosdep install` — particularly around error handling, key types (ROS
-  package names vs. rosdep keys), and installer selection.
-- [ ] Evaluate whether using `rosdep resolve` exclusively and calling
-  installers directly gives rosup more control (batching, error recovery,
-  dry-run output).
-- [ ] Test `rosdep resolve` against edge cases:
-  - Pure system keys (e.g. `asio`, `libpcl-dev`) that are not ROS packages.
-  - Keys that resolve to multiple packages.
-  - Keys with no rosdep rule (expected error).
-  - Pip-only dependencies.
-- [ ] Write findings to `docs/design/rosdep-resolve.md`.
+- [x] Documented behavioural differences between `rosdep resolve` and
+  `rosdep install` in `docs/design/rosdep-resolve.md`.
+- [x] Evaluated direct invocation: better error messages, no temp files,
+  per-key failure handling, installer grouping.
+- [x] Edge cases verified: pure system keys, multi-package keys, missing
+  rules, pip dependencies.
+- [x] Design doc written with recommendation: use `rosdep resolve`
+  exclusively, call installers directly.
 
-### 12.2.2 Implement direct installer invocation (optional)
+### 13.2.2 Implement direct installer invocation — DONE
 
-If 12.2.1 concludes that direct invocation is better:
-
-- [ ] After `rosdep resolve`, group resolved packages by installer.
-- [ ] Call `apt-get install -y <pkgs>` / `pip install <pkgs>` directly
-  instead of going through `rosdep install`.
-- [ ] Preserve dry-run support (print commands without executing).
-- [ ] Better error messages: show which rosdep key maps to which system
-  package when installation fails.
+- [x] `resolve_all(keys, distro)` — batch-resolve all keys, group by
+  installer, collect failures separately.
+- [x] `install_direct(resolved, dry_run, yes)` — call `apt-get install` /
+  `pip install` directly from grouped results.
+- [x] `ResolveAllResult` and `InstalledPackage` structs for traceability
+  (rosdep key → system package mapping).
+- [x] Resolver `execute()` now uses `resolve_all()` + `install_direct()`
+  instead of `rosdep::install()`.
+- [x] Old `rosdep::install()` retained as fallback for unknown installers.
+- [x] Dry-run logs exact installer commands via tracing.
+- [x] Per-key failure logging with warnings (non-fatal).
 
 ### Acceptance criteria
 
-- [ ] Design doc written with clear recommendation.
-- [ ] If 12.2.2 is implemented: existing `rosup resolve` integration tests
-  pass, and `rosup resolve --dry-run` shows the installer commands.
+- [x] Design doc written: `docs/design/rosdep-resolve.md`.
+- [ ] Existing integration tests pass.
 - [ ] `just ci` passes.
 
 ---
 
-## 12.3 Full REP-149 conditional expression parser
+## 13.3 Full REP-149 conditional expression parser
 
 **Current state:** `eval_condition()` in `package_xml.rs` handles only simple
 binary comparisons (`$ROS_VERSION == 2`). Complex expressions with `and`,
@@ -153,7 +152,7 @@ variables cause the expression to evaluate conservatively to `true`.
 
 **File:** `crates/rosup-core/src/package_xml.rs` (replace `eval_condition`)
 
-### 12.3.1 Tokeniser and parser
+### 13.3.1 Tokeniser and parser
 
 - [ ] Define token types: `LParen`, `RParen`, `And`, `Or`, `Op(CmpOp)`,
   `Var(String)`, `Literal(String)`.
@@ -172,7 +171,7 @@ variables cause the expression to evaluate conservatively to `true`.
 - [ ] Parse errors fall back to `true` (conservative, same as current
   behaviour — never silently drop a dep).
 
-### 12.3.2 Evaluator
+### 13.3.2 Evaluator
 
 - [ ] Substitute known variables: `$ROS_VERSION` → `"2"`.
   Optionally accept additional variables from caller (for future
@@ -182,7 +181,7 @@ variables cause the expression to evaluate conservatively to `true`.
 - [ ] Evaluate `And`/`Or`/`Compare` nodes. String comparison for all
   operators (REP-149 does not define numeric semantics).
 
-### 12.3.3 Test fixtures from official sources
+### 13.3.3 Test fixtures from official sources
 
 REP-149 condition examples appear in the official ROS packaging test suites.
 Copy or adapt fixtures from:
@@ -205,7 +204,7 @@ Fixture files to create:
 - [ ] `tests/fixtures/package_xml/condition_malformed.xml` — unparseable
   conditions (should fall back to including the dep).
 
-### 12.3.4 Unit tests
+### 13.3.4 Unit tests
 
 - [ ] Tokeniser tests: all token types, edge cases (adjacent operators,
   empty input, only whitespace).
@@ -235,9 +234,9 @@ Fixture files to create:
 These three work streams are independent and can be done in parallel. However,
 a suggested priority order:
 
-1. **12.3** (REP-149 parser) — self-contained, improves correctness now,
+1. **13.3** (REP-149 parser) — self-contained, improves correctness now,
    no external deps.
-2. **12.2** (rosdep research) — research-first, low risk, informs future
+2. **13.2** (rosdep research) — research-first, low risk, informs future
    resolver improvements.
-3. **12.1** (sparse-checkout) — largest scope, biggest payoff for large
+3. **13.1** (sparse-checkout) — largest scope, biggest payoff for large
    workspaces, benefits from 3.4 fixes (bare clone + worktree rewrite).

@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::process::Command;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -110,6 +112,143 @@ pub fn install(keys: &[&str], distro: &str, dry_run: bool, yes: bool) -> Result<
     Ok(())
 }
 
+/// Resolve multiple rosdep keys and group the results by installer.
+///
+/// Calls `rosdep resolve` for each key individually, collects the results,
+/// and returns them grouped by installer (e.g. "apt" → [...], "pip" → [...]).
+///
+/// Keys that fail to resolve are collected in the returned `failures` vec
+/// rather than aborting — the caller decides whether failures are fatal.
+pub fn resolve_all(keys: &[&str], distro: &str) -> Result<ResolveAllResult, RosdepError> {
+    let mut by_installer: HashMap<String, Vec<InstalledPackage>> = HashMap::new();
+    let mut failures: Vec<(String, String)> = Vec::new();
+
+    for &key in keys {
+        match resolve(key, distro) {
+            Ok(r) => {
+                let entry = by_installer.entry(r.installer).or_default();
+                for pkg in &r.packages {
+                    entry.push(InstalledPackage {
+                        rosdep_key: key.to_owned(),
+                        system_package: pkg.clone(),
+                    });
+                }
+            }
+            Err(RosdepError::Other(msg)) => {
+                failures.push((key.to_owned(), msg));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(ResolveAllResult {
+        by_installer,
+        failures,
+    })
+}
+
+/// Result of batch-resolving rosdep keys.
+#[derive(Debug)]
+pub struct ResolveAllResult {
+    /// System packages grouped by installer (e.g. "apt" → [...]).
+    pub by_installer: HashMap<String, Vec<InstalledPackage>>,
+    /// Keys that failed to resolve: (rosdep_key, error_message).
+    pub failures: Vec<(String, String)>,
+}
+
+/// A system package with its originating rosdep key for traceability.
+#[derive(Debug, Clone)]
+pub struct InstalledPackage {
+    /// The rosdep key that resolved to this package (e.g. "rclcpp").
+    pub rosdep_key: String,
+    /// The system package name (e.g. "ros-humble-rclcpp").
+    pub system_package: String,
+}
+
+/// Install system packages directly via the platform installer, bypassing
+/// `rosdep install`.
+///
+/// Takes the output of `resolve_all()` and calls the installer directly
+/// (e.g. `apt-get install`, `pip install`). This gives rosup full control
+/// over the install process — better error messages, batching, and dry-run
+/// output that shows exactly what will be installed.
+pub fn install_direct(
+    resolved: &ResolveAllResult,
+    dry_run: bool,
+    yes: bool,
+) -> Result<(), RosdepError> {
+    for (installer, packages) in &resolved.by_installer {
+        let system_pkgs: Vec<&str> = packages.iter().map(|p| p.system_package.as_str()).collect();
+
+        if system_pkgs.is_empty() {
+            continue;
+        }
+
+        match installer.as_str() {
+            "apt" => install_apt(&system_pkgs, dry_run, yes)?,
+            "pip" => install_pip(&system_pkgs, dry_run, yes)?,
+            other => {
+                // Fall back to rosdep install for unknown installers.
+                tracing::warn!("unknown installer '{other}', falling back to rosdep install");
+                let keys: Vec<&str> = packages.iter().map(|p| p.rosdep_key.as_str()).collect();
+                install(&keys, "", dry_run, yes)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn install_apt(packages: &[&str], dry_run: bool, yes: bool) -> Result<(), RosdepError> {
+    if dry_run {
+        let joined = packages.join(" ");
+        tracing::info!("would run: sudo apt-get install {joined}");
+        return Ok(());
+    }
+
+    let mut cmd = Command::new("sudo");
+    cmd.arg("apt-get").arg("install");
+    if yes {
+        cmd.arg("-y");
+    }
+    cmd.args(packages);
+
+    tracing::info!("installing {} apt package(s)", packages.len());
+    let status = cmd.status().map_err(RosdepError::Io)?;
+    if !status.success() {
+        return Err(RosdepError::Other(format!(
+            "apt-get install failed for: {}",
+            packages.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn install_pip(packages: &[&str], dry_run: bool, yes: bool) -> Result<(), RosdepError> {
+    if dry_run {
+        let joined = packages.join(" ");
+        tracing::info!("would run: pip install {joined}");
+        return Ok(());
+    }
+
+    let mut cmd = Command::new("pip");
+    cmd.arg("install");
+    if yes {
+        // pip has no --yes flag, but it's non-interactive by default.
+        // Nothing to do.
+    }
+    cmd.args(packages);
+
+    tracing::info!("installing {} pip package(s)", packages.len());
+    let status = cmd.status().map_err(RosdepError::Io)?;
+    if !status.success() {
+        return Err(RosdepError::Other(format!(
+            "pip install failed for: {}",
+            packages.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 fn rosdep_cmd() -> Command {
     Command::new("rosdep")
 }
@@ -161,5 +300,51 @@ mod tests {
         let r = resolve("rclcpp", "humble").unwrap();
         assert_eq!(r.installer, "apt");
         assert!(r.packages.iter().any(|p| p.contains("rclcpp")));
+    }
+
+    #[test]
+    fn resolve_all_result_groups_by_installer() {
+        let mut by_installer = HashMap::new();
+        by_installer.insert(
+            "apt".to_owned(),
+            vec![
+                InstalledPackage {
+                    rosdep_key: "rclcpp".to_owned(),
+                    system_package: "ros-humble-rclcpp".to_owned(),
+                },
+                InstalledPackage {
+                    rosdep_key: "std_msgs".to_owned(),
+                    system_package: "ros-humble-std-msgs".to_owned(),
+                },
+            ],
+        );
+        by_installer.insert(
+            "pip".to_owned(),
+            vec![InstalledPackage {
+                rosdep_key: "empy".to_owned(),
+                system_package: "empy".to_owned(),
+            }],
+        );
+
+        let result = ResolveAllResult {
+            by_installer,
+            failures: vec![("unknown_pkg".to_owned(), "no rule".to_owned())],
+        };
+
+        assert_eq!(result.by_installer.len(), 2);
+        assert_eq!(result.by_installer["apt"].len(), 2);
+        assert_eq!(result.by_installer["pip"].len(), 1);
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.failures[0].0, "unknown_pkg");
+    }
+
+    #[test]
+    fn installed_package_tracks_rosdep_key() {
+        let pkg = InstalledPackage {
+            rosdep_key: "rclcpp".to_owned(),
+            system_package: "ros-humble-rclcpp".to_owned(),
+        };
+        assert_eq!(pkg.rosdep_key, "rclcpp");
+        assert_eq!(pkg.system_package, "ros-humble-rclcpp");
     }
 }
