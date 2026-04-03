@@ -178,23 +178,24 @@ topological sort. Instead of the Python helper, generate a static
 `local_setup.bash` that sources packages in the correct order. No Python
 needed at runtime.
 
-**C. Use PyO3 to run the Python helper** — call `_local_setup_util_sh.py`
-from Rust via PyO3 and capture its output to generate the shell scripts.
-Same result as A but integrated into rosup's process.
+**Decision: Ship the Python helper unchanged.** Both ament and colcon
+use dynamic package discovery at source-time — scanning
+`share/ament_index/` or `share/colcon-core/packages/` for marker files.
+A static script would miss packages installed after the build (e.g.
+`apt install ros-humble-*`). The Python helper (~0.5s at source-time)
+is acceptable for a one-time interactive operation.
 
-**Decision: Option A for compatibility, with Option B as a future
-optimisation.** Ship the Python script unchanged so `source install/setup.bash`
-works exactly like colcon's output. Users who don't have Python at runtime
-can use Option B (a `--no-python-scripts` flag).
+The DSV parser (11.5c) handles build-time env setup where performance
+matters and deps are known statically.
 
-- [ ] Copy `_local_setup_util_sh.py` to `install/`.
+- [ ] Copy `_local_setup_util_sh.py` to `install/` (colcon's Python
+  helper for dynamic package discovery + topo-order sourcing).
 - [ ] Generate `install/setup.{bash,sh,zsh}` — sources chained prefixes
   then `local_setup`.
 - [ ] Generate `install/local_setup.{bash,sh,zsh}` — calls the Python
-  helper to get topological ordering.
+  helper to discover and source packages.
 - [ ] Generate `install/.colcon_install_layout` containing `"isolated"`.
-- [ ] Generate `install/COLCON_IGNORE` — prevents colcon from scanning
-  the install directory.
+- [ ] Generate `install/COLCON_IGNORE`.
 
 ### Acceptance criteria
 
@@ -202,6 +203,8 @@ can use Option B (a `--no-python-scripts` flag).
   identical `AMENT_PREFIX_PATH`, `CMAKE_PREFIX_PATH`, `PATH`,
   `LD_LIBRARY_PATH`, `PKG_CONFIG_PATH` as colcon-built.
 - [ ] `ros2 run <pkg> <node>` works after sourcing.
+- [ ] Installing a new package into `install/` and re-sourcing
+  `setup.bash` picks it up without rebuilding.
 
 ---
 
