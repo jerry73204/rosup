@@ -6,6 +6,7 @@
 
 pub mod ament_index;
 pub mod environment;
+pub mod post_install;
 pub mod selection;
 pub mod task;
 pub mod topo;

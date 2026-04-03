@@ -3,14 +3,16 @@
 //! Steps:
 //! 1. Install Python package via `pip install` into the install prefix.
 //!    Uses `--editable` when `symlink_install` is true.
-//! 2. Copy `package.xml` to `share/<name>/package.xml`.
-//! 3. Create ament index marker.
-//! 4. Generate environment scripts (including PYTHONPATH hook).
+//! 2. Ament layer (pip doesn't generate these unlike cmake --install):
+//!    - Copy `package.xml` to `share/<name>/package.xml`
+//!    - Create ament index marker
+//!    - Generate environment scripts (PYTHONPATH, PATH, etc.)
+//! 3. Colcon layer via `post_install`: hook/ dir + colcon-core/packages/
 
 use tracing::info;
 
 use super::{BuildContext, BuildTask, TaskError, run_command};
-use crate::build::{ament_index, environment};
+use crate::build::{ament_index, environment, post_install};
 
 pub struct AmentPythonBuildTask;
 
@@ -25,14 +27,14 @@ impl BuildTask for AmentPythonBuildTask {
         info!("{}: pip install", ctx.pkg_name);
         self.pip_install(ctx)?;
 
-        // Phase 2: copy package.xml
+        // Phase 2: ament layer (pip doesn't generate these, unlike cmake --install)
         self.install_package_xml(ctx)?;
-
-        // Phase 3: ament index marker (if not already installed by setup.py data_files)
         self.ensure_ament_index(ctx)?;
+        self.generate_environment_scripts(ctx)?;
 
-        // Phase 4: environment scripts (with PYTHONPATH hook)
-        self.write_metadata(ctx)?;
+        // Phase 3: colcon layer (hook/ dir + colcon-core/packages/)
+        post_install::post_install(&ctx.install_base, &ctx.pkg_name, &ctx.runtime_deps)
+            .map_err(|e| TaskError::Other(e.to_string()))?;
 
         Ok(())
     }
@@ -117,11 +119,8 @@ impl AmentPythonBuildTask {
             .map_err(|e| TaskError::Other(e.to_string()))
     }
 
-    fn write_metadata(&self, ctx: &BuildContext) -> Result<(), TaskError> {
-        ament_index::write_runtime_deps(&ctx.install_base, &ctx.pkg_name, &ctx.runtime_deps)
-            .map_err(|e| TaskError::Other(e.to_string()))?;
-
-        // ament_python packages need the PYTHONPATH hook
+    fn generate_environment_scripts(&self, ctx: &BuildContext) -> Result<(), TaskError> {
+        // ament_python packages need the PYTHONPATH hook in addition to standard hooks
         let python_version = ctx.python_version.as_deref().unwrap_or("3.10");
 
         environment::generate_environment_scripts(

@@ -9,7 +9,7 @@
 use tracing::info;
 
 use super::{BuildContext, BuildTask, TaskError, run_command};
-use crate::build::{ament_index, environment};
+use crate::build::post_install;
 
 pub struct AmentCmakeBuildTask;
 
@@ -35,15 +35,14 @@ impl BuildTask for AmentCmakeBuildTask {
         info!("{}: cmake build", ctx.pkg_name);
         self.cmake_build(ctx)?;
 
-        // Phase 3: install
+        // Phase 3: install (ament_cmake generates ament_index, environment/,
+        // local_setup, package.xml, cmake configs — we do NOT duplicate these)
         info!("{}: cmake install", ctx.pkg_name);
         self.cmake_install(ctx)?;
 
-        // Phase 4: copy package.xml to install
-        self.install_package_xml(ctx)?;
-
-        // Phase 5: ament index + environment scripts
-        self.write_metadata(ctx)?;
+        // Phase 4: colcon post-install (hook/ dir + colcon-core/packages/)
+        post_install::post_install(&ctx.install_base, &ctx.pkg_name, &ctx.runtime_deps)
+            .map_err(|e| TaskError::Other(e.to_string()))?;
 
         Ok(())
     }
@@ -128,37 +127,6 @@ impl AmentCmakeBuildTask {
             &ctx.source_path,
             &ctx.env,
         )
-    }
-
-    fn install_package_xml(&self, ctx: &BuildContext) -> Result<(), TaskError> {
-        let src = ctx.source_path.join("package.xml");
-        let dst_dir = ctx.install_base.join("share").join(&ctx.pkg_name);
-        std::fs::create_dir_all(&dst_dir).map_err(|e| TaskError::Io {
-            cmd: "mkdir share/<name>".into(),
-            source: e,
-        })?;
-        std::fs::copy(&src, dst_dir.join("package.xml")).map_err(|e| TaskError::Io {
-            cmd: format!("copy package.xml to {}", dst_dir.display()),
-            source: e,
-        })?;
-        Ok(())
-    }
-
-    fn write_metadata(&self, ctx: &BuildContext) -> Result<(), TaskError> {
-        ament_index::write_package_marker(&ctx.install_base, &ctx.pkg_name)
-            .map_err(|e| TaskError::Other(e.to_string()))?;
-
-        ament_index::write_runtime_deps(&ctx.install_base, &ctx.pkg_name, &ctx.runtime_deps)
-            .map_err(|e| TaskError::Other(e.to_string()))?;
-
-        environment::generate_environment_scripts(
-            &ctx.install_base,
-            &ctx.pkg_name,
-            ctx.python_version.as_deref(),
-        )
-        .map_err(|e| TaskError::Other(e.to_string()))?;
-
-        Ok(())
     }
 }
 

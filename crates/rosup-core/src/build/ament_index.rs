@@ -1,7 +1,9 @@
-//! Ament index and colcon metadata generation.
+//! Ament index marker generation.
 //!
-//! After a package is installed, these files must exist for other packages
-//! and `ros2 run`/`ros2 launch` to find it.
+//! For `ament_python` packages (where pip doesn't generate ament markers),
+//! this writes the ament index package marker so `ament_index_python` can
+//! discover the package. For `ament_cmake` packages, cmake --install
+//! generates this automatically.
 
 use std::path::Path;
 
@@ -42,23 +44,6 @@ pub fn write_package_marker(install_base: &Path, pkg_name: &str) -> Result<(), A
     write_file(&marker, "")
 }
 
-/// Write the colcon runtime dependencies file.
-///
-/// Creates `<install>/share/colcon-core/packages/<name>` containing
-/// colon-separated runtime dependency names. Used by colcon's prefix
-/// scripts to source deps in topological order.
-pub fn write_runtime_deps(
-    install_base: &Path,
-    pkg_name: &str,
-    runtime_deps: &[String],
-) -> Result<(), AmentIndexError> {
-    let path = install_base
-        .join("share/colcon-core/packages")
-        .join(pkg_name);
-    let content = runtime_deps.join(":");
-    write_file(&path, &content)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,23 +58,5 @@ mod tests {
             .join("share/ament_index/resource_index/packages/my_pkg");
         assert!(marker.exists());
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "");
-    }
-
-    #[test]
-    fn writes_runtime_deps() {
-        let tmp = TempDir::new().unwrap();
-        let deps = vec!["rclcpp".to_owned(), "std_msgs".to_owned()];
-        write_runtime_deps(tmp.path(), "my_pkg", &deps).unwrap();
-        let path = tmp.path().join("share/colcon-core/packages/my_pkg");
-        assert!(path.exists());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "rclcpp:std_msgs");
-    }
-
-    #[test]
-    fn writes_empty_runtime_deps() {
-        let tmp = TempDir::new().unwrap();
-        write_runtime_deps(tmp.path(), "standalone_pkg", &[]).unwrap();
-        let path = tmp.path().join("share/colcon-core/packages/standalone_pkg");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
     }
 }
