@@ -41,8 +41,14 @@ impl BuildTask for AmentCmakeBuildTask {
         self.cmake_install(ctx)?;
 
         // Phase 4: colcon post-install (hook/ dir + colcon-core/packages/)
-        post_install::post_install(&ctx.install_base, &ctx.pkg_name, &ctx.runtime_deps)
-            .map_err(|e| TaskError::Other(e.to_string()))?;
+        let ament_prefix = ctx.env.get("AMENT_PREFIX_PATH").map(String::as_str);
+        post_install::post_install(
+            &ctx.install_base,
+            &ctx.pkg_name,
+            &ctx.runtime_deps,
+            ament_prefix,
+        )
+        .map_err(|e| TaskError::Other(e.to_string()))?;
 
         Ok(())
     }
