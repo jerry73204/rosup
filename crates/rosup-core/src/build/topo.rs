@@ -107,7 +107,19 @@ impl BuildGraph {
         ready
     }
 
-    /// Mark a package as completed. Decrements in-degree of its dependents.
+    /// Mark a package as dispatched (in-flight). Sets its in-degree to a
+    /// sentinel value so `ready()` won't return it again, but does NOT
+    /// decrement dependents' in-degrees yet. Call `mark_done` when the
+    /// build succeeds or `mark_failed` if it fails.
+    pub fn mark_dispatched(&mut self, name: &str) {
+        // Set in-degree to usize::MAX as sentinel for "dispatched"
+        if let Some(deg) = self.in_degree.get_mut(name) {
+            *deg = usize::MAX;
+        }
+    }
+
+    /// Mark a package as completed. Decrements in-degree of its dependents
+    /// and removes it from the graph.
     pub fn mark_done(&mut self, name: &str) {
         self.in_degree.remove(name);
         if let Some(deps) = self.dependents.remove(name) {
@@ -117,6 +129,30 @@ impl BuildGraph {
                 }
             }
         }
+    }
+
+    /// Mark a package as failed. Removes it and all transitive dependents
+    /// from the graph so they are never scheduled.
+    ///
+    /// Returns the names of downstream dependents that were skipped (does
+    /// NOT include the failed package itself).
+    pub fn mark_failed(&mut self, name: &str) -> Vec<String> {
+        let mut skipped = Vec::new();
+        // Remove the failed package itself
+        self.in_degree.remove(name);
+        self.nodes.remove(name);
+        // BFS through dependents
+        let mut queue: Vec<String> = self.dependents.remove(name).unwrap_or_default();
+        while let Some(pkg) = queue.pop() {
+            if self.in_degree.remove(&pkg).is_some() {
+                self.nodes.remove(&pkg);
+                skipped.push(pkg.clone());
+                if let Some(deps) = self.dependents.remove(&pkg) {
+                    queue.extend(deps);
+                }
+            }
+        }
+        skipped
     }
 
     /// Returns true if all packages have been processed.

@@ -7,6 +7,7 @@
 pub mod ament_index;
 pub mod dsv;
 pub mod environment;
+pub mod executor;
 pub mod fingerprint;
 pub mod install_scripts;
 pub mod post_install;
